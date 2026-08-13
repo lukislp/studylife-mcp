@@ -1,3 +1,15 @@
+# [1.5.0](https://github.com/lukislp/studylife-mcp/compare/v1.4.1...v1.5.0) (2026-08-13)
+
+
+### Bug Fixes
+
+* **k8s:** add the studylife-mcp-public Gateway listener too ([37becd8](https://github.com/lukislp/studylife-mcp/commit/37becd8b0c0b61569a1301b5474e26ce452af922))
+
+
+### Features
+
+* rate-limit /mcp calls per-token, not just /register per-IP ([310e7ac](https://github.com/lukislp/studylife-mcp/commit/310e7ac79b6831f4fec849cab39e30d8e6e34d6f))
+
 ## [1.4.1](https://github.com/lukislp/studylife-mcp/compare/v1.4.0...v1.4.1) (2026-08-13)
 
 
