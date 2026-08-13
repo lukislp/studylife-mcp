@@ -1,3 +1,10 @@
+## [1.4.1](https://github.com/lukislp/studylife-mcp/compare/v1.4.0...v1.4.1) (2026-08-13)
+
+
+### Bug Fixes
+
+* **k8s:** correct internal LAN hostname from home.lan to heim.lan ([4dc543f](https://github.com/lukislp/studylife-mcp/commit/4dc543fdbf2014dd01675d63cd1057ffbeee4edf))
+
 # [1.4.0](https://github.com/lukislp/studylife-mcp/compare/v1.3.0...v1.4.0) (2026-08-13)
 
 
