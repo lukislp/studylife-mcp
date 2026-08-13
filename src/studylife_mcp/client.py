@@ -4,7 +4,7 @@ import httpx
 import truststore
 
 from studylife_mcp.config import Settings
-from studylife_mcp.models import Course
+from studylife_mcp.models import Course, CourseGoal, Note, Session
 
 
 class StudyLifeClient:
@@ -25,6 +25,26 @@ class StudyLifeClient:
         response = await self._client.get("/api/courses")
         response.raise_for_status()
         return [Course.model_validate(item) for item in response.json()]
+
+    async def list_notes(self) -> list[Note]:
+        response = await self._client.get("/api/notes")
+        response.raise_for_status()
+        return [Note.model_validate(item) for item in response.json()]
+
+    async def search_notes(self, query: str) -> list[Note]:
+        response = await self._client.get("/api/notes/search", params={"q": query})
+        response.raise_for_status()
+        return [Note.model_validate(item) for item in response.json()]
+
+    async def list_sessions(self) -> list[Session]:
+        response = await self._client.get("/api/sessions")
+        response.raise_for_status()
+        return [Session.model_validate(item) for item in response.json()]
+
+    async def list_course_goals(self) -> list[CourseGoal]:
+        response = await self._client.get("/api/coursegoals")
+        response.raise_for_status()
+        return [CourseGoal.model_validate(item) for item in response.json()]
 
     async def aclose(self) -> None:
         await self._client.aclose()
