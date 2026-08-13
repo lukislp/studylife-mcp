@@ -1,6 +1,7 @@
 # studylife-mcp
 
 [![CI](https://github.com/lukislp/studylife-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/lukislp/studylife-mcp/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/lukislp/studylife-mcp)](https://github.com/lukislp/studylife-mcp/releases)
 [![License: AGPL-3.0](https://img.shields.io/github/license/lukislp/studylife-mcp)](LICENSE)
 [![Python](https://img.shields.io/badge/Python-3.12-3776AB)](https://www.python.org/)
 
@@ -151,9 +152,13 @@ every access token is bound to that one account.
 
    ```bash
    uv run studylife-mcp-http
-   # or, containerized:
+   # or, containerized (build locally):
    docker build -t studylife-mcp .
    docker run -p 8000:8000 --env-file .env -v studylife-mcp-data:/app/data studylife-mcp
+   # or, the published image (CI builds and pushes ghcr.io/lukislp/studylife-mcp on every
+   # release, multi-arch amd64/arm64 - see the "docker" job in .github/workflows/ci.yml):
+   docker run -p 8000:8000 --env-file .env -v studylife-mcp-data:/app/data \
+     ghcr.io/lukislp/studylife-mcp:latest
    ```
 
 3. Add `https://studylife-mcp.example.com` as a remote MCP connector in your
