@@ -10,6 +10,12 @@ class Settings(BaseSettings):
     studylife_base_url: HttpUrl
     studylife_api_key: str
 
+    # Path to a PEM CA bundle to trust for `studylife_base_url`, INSTEAD of the OS
+    # certificate store - for a private CA the OS store doesn't know (e.g. a
+    # cluster-internal cert-manager issuer). Unset (the default) keeps using the OS
+    # store via truststore, correct for a normal publicly-trusted-or-plain-HTTP setup.
+    studylife_ca_cert_path: str | None = None
+
     # --- S4: Streamable HTTP transport + OAuth 2.1 authorization server ---
     # All optional, with no bearing on stdio mode (main()) - only main_http() requires
     # mcp_public_url and mcp_token_encryption_key to be set, checked explicitly there

@@ -1,11 +1,18 @@
 import re
-from datetime import datetime
+import ssl
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 import httpx
 import pytest
 import respx
+import truststore
+from cryptography import x509
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import ec
+from cryptography.x509.oid import NameOID
 
-from studylife_mcp.client import StudyLifeClient
+from studylife_mcp.client import StudyLifeClient, _build_ssl_context
 from studylife_mcp.config import Settings
 
 COURSE_PAYLOAD = [
@@ -355,3 +362,32 @@ async def test_create_session_timeout_raises(settings: Settings) -> None:
             end_time=datetime(2026, 8, 1, 11, 30),
         )
     await client.aclose()
+
+
+def test_build_ssl_context_defaults_to_os_trust_store() -> None:
+    context = _build_ssl_context(None)
+
+    assert isinstance(context, truststore.SSLContext)
+
+
+def test_build_ssl_context_loads_custom_ca_when_path_given(tmp_path: Path) -> None:
+    key = ec.generate_private_key(ec.SECP256R1())
+    subject = issuer = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "test-ca")])
+    cert = (
+        x509.CertificateBuilder()
+        .subject_name(subject)
+        .issuer_name(issuer)
+        .public_key(key.public_key())
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(datetime.now(UTC))
+        .not_valid_after(datetime.now(UTC) + timedelta(days=1))
+        .add_extension(x509.BasicConstraints(ca=True, path_length=None), critical=True)
+        .sign(key, hashes.SHA256())
+    )
+    ca_path = tmp_path / "ca.crt"
+    ca_path.write_bytes(cert.public_bytes(serialization.Encoding.PEM))
+
+    context = _build_ssl_context(str(ca_path))
+
+    assert isinstance(context, ssl.SSLContext)
+    assert not isinstance(context, truststore.SSLContext)

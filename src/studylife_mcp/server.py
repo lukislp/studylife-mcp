@@ -5,6 +5,8 @@ from datetime import datetime
 import anyio
 from mcp.server.auth.settings import AuthSettings, ClientRegistrationOptions, RevocationOptions
 from mcp.server.mcpserver import MCPServer
+from starlette.requests import Request
+from starlette.responses import PlainTextResponse, Response
 
 from studylife_mcp.audit import audited
 from studylife_mcp.client_resolver import StudyLifeClientResolver
@@ -51,6 +53,14 @@ else:
     mcp = MCPServer("studylife-mcp")
 
 _resolver = StudyLifeClientResolver(_settings, _oauth_store)
+
+
+# Liveness/readiness target for the HTTP transport (k8s/04-app.yaml) - deliberately not part
+# of the MCP protocol surface, no auth required, matching custom_route()'s own documented
+# use case ("health checks... will not require authorization").
+@mcp.custom_route("/health", methods=["GET"])  # type: ignore[untyped-decorator]
+async def health(request: Request) -> Response:
+    return PlainTextResponse("ok")
 
 
 @mcp.tool()

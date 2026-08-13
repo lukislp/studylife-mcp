@@ -9,6 +9,21 @@ from studylife_mcp.config import Settings
 from studylife_mcp.models import Course, CourseGoal, Note, Session
 
 
+def _build_ssl_context(ca_cert_path: str | None) -> ssl.SSLContext:
+    if ca_cert_path is not None:
+        # A private CA (e.g. a cluster-internal cert-manager issuer) isn't in any OS trust
+        # store - load it explicitly instead. Scoped to just this one CA rather than added
+        # on top of the OS store: this client only ever talks to one StudyLife instance, so
+        # narrower trust here is strictly more correct, not just sufficient.
+        context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+        context.load_verify_locations(cafile=ca_cert_path)
+        return context
+    # Verify against the OS certificate store instead of only certifi's bundle, so a
+    # locally trusted cert (e.g. the ASP.NET Core HTTPS dev cert registered via
+    # `dotnet dev-certs https --trust`) is accepted for local development.
+    return truststore.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+
+
 class StudyLifeClient:
     """Typed async client for the StudyLife REST API (X-Api-Key auth)."""
 
@@ -17,10 +32,7 @@ class StudyLifeClient:
             base_url=str(settings.studylife_base_url),
             headers={"X-Api-Key": settings.studylife_api_key},
             timeout=10.0,
-            # Verify against the OS certificate store instead of only certifi's bundle,
-            # so a locally trusted cert (e.g. the ASP.NET Core HTTPS dev cert registered
-            # via `dotnet dev-certs https --trust`) is accepted for local development.
-            verify=truststore.SSLContext(ssl.PROTOCOL_TLS_CLIENT),
+            verify=_build_ssl_context(settings.studylife_ca_cert_path),
         )
 
     async def _request(self, method: str, path: str, **kwargs: Any) -> httpx.Response:
