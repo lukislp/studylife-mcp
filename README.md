@@ -41,6 +41,15 @@ full write-up, including two real bugs found live along the way (a silent
 camelCase/snake_case field mismatch, and a double-`await` that crashed the
 OAuth store's SQLite connection) and how they were caught.
 
+Since S4, this server has also been deployed to the author's own production
+K3s cluster via Flux CD GitOps (see [k8s/](k8s/)) and made publicly reachable
+through Tailscale Funnel — deliberately scoped so this is the *only* service
+in that cluster the tailnet ACL allows to become public (see
+[docs/decisions.md](docs/decisions.md)). The previously-open RFC 7591 dynamic
+client registration endpoint (`/register`, unauthenticated by protocol
+design) is now rate-limited and self-cleans unused registrations — see
+[Security notes](#security-notes).
+
 Still open, deliberately deferred: submitting/listing this repo in public MCP
 directories (see [docs/decisions.md](docs/decisions.md)).
 
@@ -172,6 +181,18 @@ Discovery endpoints (for debugging, or a client that doesn't auto-discover):
 `GET /.well-known/oauth-protected-resource`. The MCP endpoint itself is
 `POST /mcp`, requiring `Authorization: Bearer <access_token>`.
 
+### Production reference deployment
+
+The author's own instance runs this way: Kubernetes (K3s) via Flux CD GitOps
+(manifests in [k8s/](k8s/) — namespace/secret/network policies/ingress applied
+once by hand, the rest continuously reconciled), with a private cert-manager
+CA trusted via `STUDYLIFE_CA_CERT_PATH`, and made publicly reachable through
+[Tailscale Funnel](k8s/07-tailscale-funnel.yaml) rather than a self-managed
+reverse proxy. Public exposure is scoped to exactly this one service at the
+tailnet ACL level (a dedicated Tailscale tag, not the operator's shared
+default) — see [docs/decisions.md](docs/decisions.md) for the full rationale
+and a real Tailscale-side incident hit along the way.
+
 ## Configuration
 
 | Variable | Description |
@@ -217,6 +238,15 @@ flagged in its tool's description as user-authored data, not instructions.
   server needs the plaintext back to call StudyLife on the user's behalf,
   unlike StudyLife's own key storage (hash-only, StudyLife itself never sees
   the plaintext again after generation).
+- **Hardened dynamic client registration**: `POST /register` is unauthenticated
+  by protocol design (RFC 7591 — any MCP client self-registers with no prior
+  credentials), which is a free, repeatable target for bots once this server
+  is publicly reachable. `RegistrationRateLimitMiddleware` caps it to 5
+  registrations/hour per source IP; any client that registers but never
+  completes the OAuth flow within 24h is purged on the next registration
+  attempt, so the store stays bounded regardless of registration volume. See
+  [docs/decisions.md](docs/decisions.md) for what this does and doesn't
+  protect against.
 
 ## Development
 
@@ -233,6 +263,8 @@ uv run pytest
 - [x] **S2** — Remaining StudyLife read tools (notes, sessions, course goals), camelCase-alias DTOs, contract tests.
 - [x] **S3** — Write tools (`create_note`, `create_session`), dedicated `McpApiKeyHash` key slot, structured audit log.
 - [x] **S4** — Streamable HTTP transport, self-built OAuth 2.1 authorization server (multi-user), non-root Docker image, verified [MCP Inspector](docs/mcp-inspector.md) run.
+- [x] Production deployment to a real K3s cluster via Flux CD GitOps (see [k8s/](k8s/)), semantic-release + Docker-publish CI pipeline.
+- [x] Public exposure via Tailscale Funnel, scoped to exactly this one service at the ACL level, plus rate-limiting/TTL-cleanup hardening for the previously-open dynamic client registration endpoint.
 - [ ] Submit/list this repo in public MCP directories — deliberately deferred, see [docs/decisions.md](docs/decisions.md).
 
 ## Tech stack
@@ -240,12 +272,12 @@ uv run pytest
 | Component | Technology |
 |---|---|
 | Server | Python 3.12, official MCP Python SDK (`mcp` ≥2.0) |
-| HTTP client | `httpx`, verified against the OS certificate store (`truststore`) |
+| HTTP client | `httpx`, verified against the OS certificate store (`truststore`) or a custom CA (`STUDYLIFE_CA_CERT_PATH`) |
 | Config | `pydantic-settings` + `.env` |
 | OAuth store | `aiosqlite`, StudyLife keys encrypted at rest with `cryptography.fernet` |
 | Tests | `pytest` + `respx` (HTTP mocking) + an ASGI test client for the OAuth login route |
-| CI | GitHub Actions (`ruff`, `mypy --strict`, `pytest`) |
-| Deployment | Docker (non-root), behind a user-supplied reverse proxy for HTTP mode |
+| CI/CD | GitHub Actions (`ruff`, `mypy --strict`, `pytest`, semantic-release, multi-arch Docker publish to GHCR, Trivy scan) |
+| Deployment | Docker (non-root) · Kubernetes (K3s) via Flux CD GitOps, see [k8s/](k8s/) · public exposure via Tailscale Funnel |
 
 ## License
 
