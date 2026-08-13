@@ -247,6 +247,11 @@ flagged in its tool's description as user-authored data, not instructions.
   attempt, so the store stays bounded regardless of registration volume. See
   [docs/decisions.md](docs/decisions.md) for what this does and doesn't
   protect against.
+- **Rate-limited tool calls**: `POST /mcp` is already authenticated (a valid
+  Bearer token is required), so this isn't about anonymous abuse — it bounds
+  a legitimate-but-buggy or compromised client (a runaway loop) rather than a
+  scanner. Limited per-token (not per-IP, since identity already exists once
+  authenticated) to 300 requests/hour, generous over realistic usage.
 - **Connected-apps self-service, internal-only**: `/connected-apps` lets a
   StudyLife user see which OAuth clients hold a live refresh token for their
   account and revoke one — gated the same way `/login` is (a real StudyLife

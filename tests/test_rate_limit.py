@@ -3,7 +3,7 @@ from starlette.applications import Starlette
 from starlette.responses import PlainTextResponse
 from starlette.routing import Route
 
-from studylife_mcp.rate_limit import RegistrationRateLimitMiddleware
+from studylife_mcp.rate_limit import McpCallRateLimitMiddleware, RegistrationRateLimitMiddleware
 
 
 def _make_app(*, max_requests: int, window_seconds: float) -> Starlette:
@@ -22,6 +22,20 @@ def _make_app(*, max_requests: int, window_seconds: float) -> Starlette:
     app.add_middleware(
         RegistrationRateLimitMiddleware,
         path="/register",
+        max_requests=max_requests,
+        window_seconds=window_seconds,
+    )
+    return app
+
+
+def _make_mcp_app(*, max_requests: int, window_seconds: float) -> Starlette:
+    async def mcp(request):  # type: ignore[no-untyped-def]
+        return PlainTextResponse("ok")
+
+    app = Starlette(routes=[Route("/mcp", mcp, methods=["POST"])])
+    app.add_middleware(
+        McpCallRateLimitMiddleware,
+        path="/mcp",
         max_requests=max_requests,
         window_seconds=window_seconds,
     )
@@ -74,3 +88,31 @@ async def test_unrelated_paths_are_not_rate_limited() -> None:
         for _ in range(5):
             response = await client.post("/other")
             assert response.status_code == 200
+
+
+async def test_mcp_same_token_is_rate_limited_together() -> None:
+    app = _make_mcp_app(max_requests=1, window_seconds=3600)
+    async with await _client(app) as client:
+        headers = {"authorization": "Bearer token-abc"}
+        first = await client.post("/mcp", headers=headers)
+        second = await client.post("/mcp", headers=headers)
+        assert first.status_code == 200
+        assert second.status_code == 429
+
+
+async def test_mcp_different_tokens_have_independent_limits() -> None:
+    app = _make_mcp_app(max_requests=1, window_seconds=3600)
+    async with await _client(app) as client:
+        first = await client.post("/mcp", headers={"authorization": "Bearer token-a"})
+        second = await client.post("/mcp", headers={"authorization": "Bearer token-b"})
+        assert first.status_code == 200
+        assert second.status_code == 200
+
+
+async def test_mcp_requests_without_bearer_token_fall_back_to_ip() -> None:
+    app = _make_mcp_app(max_requests=1, window_seconds=3600)
+    async with await _client(app) as client:
+        first = await client.post("/mcp", headers={"x-forwarded-for": "5.5.5.5"})
+        second = await client.post("/mcp", headers={"x-forwarded-for": "5.5.5.5"})
+        assert first.status_code == 200
+        assert second.status_code == 429

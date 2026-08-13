@@ -16,7 +16,7 @@ from studylife_mcp.config import Settings
 from studylife_mcp.models import Course, CourseGoal, Note, Session
 from studylife_mcp.oauth_provider import SCOPE, StudyLifeOAuthProvider, register_oauth_routes
 from studylife_mcp.oauth_store import OAuthStore
-from studylife_mcp.rate_limit import RegistrationRateLimitMiddleware
+from studylife_mcp.rate_limit import McpCallRateLimitMiddleware, RegistrationRateLimitMiddleware
 
 # Audit log destination: stderr only, never stdout - stdout carries the stdio
 # JSON-RPC transport and any stray write there would corrupt it.
@@ -181,11 +181,15 @@ def main_http() -> None:
     anyio.run(_oauth_store.initialize)
 
     # Built by hand (mirroring what mcp.run(transport="streamable-http", ...) does
-    # internally) instead of calling mcp.run() directly, purely so the registration
-    # rate limit below can be added to the app before it starts serving - the SDK
-    # doesn't expose a hook for that on the mcp.run() path itself.
+    # internally) instead of calling mcp.run() directly, purely so the rate limits
+    # below can be added to the app before it starts serving - the SDK doesn't expose
+    # a hook for that on the mcp.run() path itself.
     app = mcp.streamable_http_app(host=_settings.mcp_http_host)
     app.add_middleware(RegistrationRateLimitMiddleware, path=REGISTRATION_PATH)
+    # "/mcp" is streamable_http_app()'s own default streamable_http_path (not overridden
+    # above), not re-derived from a constant - the SDK doesn't export one the way it does
+    # for REGISTRATION_PATH.
+    app.add_middleware(McpCallRateLimitMiddleware, path="/mcp")
     server = uvicorn.Server(
         uvicorn.Config(app, host=_settings.mcp_http_host, port=_settings.mcp_http_port)
     )
