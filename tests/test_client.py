@@ -1,3 +1,6 @@
+import re
+from datetime import datetime
+
 import httpx
 import pytest
 import respx
@@ -249,4 +252,106 @@ async def test_list_course_goals_timeout_raises(settings: Settings) -> None:
 
     with pytest.raises(httpx.TimeoutException):
         await client.list_course_goals()
+    await client.aclose()
+
+
+@respx.mock
+async def test_create_note_happy_path(settings: Settings) -> None:
+    created = {**NOTE_PAYLOAD[0], "id": 2, "title": "New note"}
+    route = respx.post("https://studylife.example.test/api/notes").mock(
+        return_value=httpx.Response(200, json=created)
+    )
+    client = StudyLifeClient(settings)
+
+    note = await client.create_note("New note", "Some content", course_id=1)
+
+    assert note.id == 2
+    assert note.title == "New note"
+    sent_body = route.calls.last.request.content
+    assert b'"title":"New note"' in sent_body
+    assert b'"courseId":1' in sent_body
+    await client.aclose()
+
+
+@respx.mock
+async def test_create_note_bad_request_includes_body(settings: Settings) -> None:
+    respx.post("https://studylife.example.test/api/notes").mock(
+        return_value=httpx.Response(400, text="Title must not be empty.")
+    )
+    client = StudyLifeClient(settings)
+
+    with pytest.raises(httpx.HTTPStatusError, match=re.escape("Title must not be empty.")):
+        await client.create_note("", "content")
+    await client.aclose()
+
+
+@respx.mock
+async def test_create_note_timeout_raises(settings: Settings) -> None:
+    respx.post("https://studylife.example.test/api/notes").mock(
+        side_effect=httpx.TimeoutException("timed out")
+    )
+    client = StudyLifeClient(settings)
+
+    with pytest.raises(httpx.TimeoutException):
+        await client.create_note("title", "content")
+    await client.aclose()
+
+
+@respx.mock
+async def test_create_session_happy_path(settings: Settings) -> None:
+    created = {**SESSION_PAYLOAD[0], "id": 2}
+    route = respx.post("https://studylife.example.test/api/sessions").mock(
+        return_value=httpx.Response(200, json=created)
+    )
+    client = StudyLifeClient(settings)
+
+    session = await client.create_session(
+        course_id=1,
+        course_name="Machine Learning",
+        course_color="#6C5CE7",
+        start_time=datetime(2026, 8, 1, 10, 0),
+        end_time=datetime(2026, 8, 1, 11, 30),
+    )
+
+    assert session.id == 2
+    assert session.course_name == "Machine Learning"
+    sent_body = route.calls.last.request.content
+    assert b'"courseId":1' in sent_body
+    assert b'"timerModeId":1' in sent_body
+    await client.aclose()
+
+
+@respx.mock
+async def test_create_session_bad_request_includes_body(settings: Settings) -> None:
+    respx.post("https://studylife.example.test/api/sessions").mock(
+        return_value=httpx.Response(400, text="EndTime must be after StartTime.")
+    )
+    client = StudyLifeClient(settings)
+
+    with pytest.raises(httpx.HTTPStatusError, match=re.escape("EndTime must be after StartTime.")):
+        await client.create_session(
+            course_id=1,
+            course_name="Machine Learning",
+            course_color="#6C5CE7",
+            start_time=datetime(2026, 8, 1, 11, 30),
+            end_time=datetime(2026, 8, 1, 10, 0),
+        )
+    await client.aclose()
+
+
+@respx.mock
+async def test_create_session_timeout_raises(settings: Settings) -> None:
+    respx.post("https://studylife.example.test/api/sessions").mock(
+        side_effect=httpx.TimeoutException("timed out")
+    )
+    client = StudyLifeClient(settings)
+
+    with pytest.raises(httpx.TimeoutException):
+        await client.create_session(
+            course_id=1,
+            course_name="Machine Learning",
+            course_color="#6C5CE7",
+            start_time=datetime(2026, 8, 1, 10, 0),
+            end_time=datetime(2026, 8, 1, 11, 30),
+        )
     await client.aclose()
