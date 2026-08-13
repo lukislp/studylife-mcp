@@ -1,0 +1,47 @@
+# Design Decisions
+
+Log of notable decisions: what was decided, alternatives considered, and why. Marked as **[owner: assistant]** for boilerplate/infra calls made per CLAUDE.md, or **[owner: user]** for calls in the assist-only areas (tool/resource modeling, auth design, whitelist content, data/instruction boundaries, single/multi-user scope).
+
+## S1 — Repository scaffold, `list_courses`
+
+### 2026-08-13 — Package manager: uv **[owner: assistant]**
+- **Decision:** Use `uv` with a standard PEP 621 `pyproject.toml`, mirroring the sister project `studylife-ai`.
+- **Why:** Already installed locally, fast, standard `pyproject.toml` rather than a tool-specific lockfile format.
+
+### 2026-08-13 — src-layout **[owner: assistant]**
+- **Decision:** Application code lives under `src/studylife_mcp/`, not a flat top-level package.
+- **Why:** Standard practice for installable Python packages; prevents accidentally importing the working-tree copy instead of the installed package during tests.
+
+### 2026-08-13 — MCP Python SDK: latest (2.0, `MCPServer`) instead of pinning to the pre-2.0 `FastMCP` API **[owner: user]**
+- **Decision:** Depend on `mcp>=2.0`. The 2.0 release renamed/restructured the ergonomic server API: `mcp.server.fastmcp.FastMCP` → `mcp.server.mcpserver.MCPServer`. CLAUDE.md's architecture line names "FastMCP" specifically (written before 2.0 existed).
+- **Alternatives:** Pin `mcp>=1.9,<2.0` to stay on the exact API CLAUDE.md names and that this assistant has solid prior knowledge of, revisiting the SDK version as its own explicit decision later.
+- **Why:** User explicitly asked to be on the current, state-of-the-art SDK version rather than pinned to what was already known. The 2.0 `MCPServer` API is a near-drop-in replacement for the same usage pattern this project needs (`@mcp.tool()` decorator, `mcp.run()` defaulting to stdio) — confirmed by reading the installed package's source directly rather than assuming API compatibility.
+
+### 2026-08-13 — `Course` DTO shape read from the `studylife` source, not assumed **[owner: assistant, per CLAUDE.md "kein Swagger, nachfragen" — resolved by reading the local sibling repo]**
+- **Decision:** `models.Course` mirrors `StudyLife.Shared.CourseDto` exactly (`src/StudyLife.Shared/CourseCatalog.cs` in the `studylife` repo): `id, semester, name, code, color, icon, topics, ects, group`. Field names match as-is — ASP.NET Core's default `System.Text.Json` camelCase policy applies (confirmed: no `AddJsonOptions`/`JsonNamingPolicy` override in `Program.cs`), and every `CourseDto` field is already a single word, so camelCase and Pydantic's snake_case coincide with no aliasing needed.
+- **Why:** CLAUDE.md forbids assuming endpoint/DTO shapes not in the documented prior knowledge. The `studylife` repo happens to be checked out locally as a sibling project, so the actual controller (`CoursesController.GetAll`) and DTO were read directly instead of guessing or asking the user to paste them.
+
+### 2026-08-13 — Auth for S1: reuse the existing Home-Assistant API-key slot (`ApiKeyHash`) **[owner: user]**
+- **Decision:** `STUDYLIFE_API_KEY` for local dev is a key from the existing HA slot, not a new dedicated `McpApiKeyHash` slot.
+- **Why:** User's call, pragmatic for S1. Confirmed in `studylife`'s API-gate middleware (`Program.cs`) that both `ApiKeyHash` and `AiApiKeyHash` authenticate identically against `X-Api-Key` — reusing the HA slot works with zero StudyLife-side changes. The dedicated-slot-vs-reuse question (per CLAUDE.md's "Auth-Design" assist-only area, precedent: `studylife-ai`'s "Dedicated StudyLife API key" decision) is deferred, to be revisited explicitly before S3 (write tools raise the stakes of slot reuse).
+
+### 2026-08-13 — TLS trust: OS certificate store via `truststore`, not disabled verification **[owner: assistant, confirmed by user's dev-cert trust]**
+- **Decision:** `StudyLifeClient` verifies TLS using `truststore.SSLContext` (OS certificate store) instead of `httpx`'s default `certifi` bundle, and instead of `verify=False`.
+- **Why:** The local StudyLife dev instance runs on `https://localhost:53963/` with the ASP.NET Core HTTPS dev certificate. `certifi` doesn't know about locally-trusted dev certs; user confirmed (`Get-ChildItem Cert:\CurrentUser\Root`) the cert is already registered via `dotnet dev-certs https --trust`. Using the OS store keeps real certificate validation intact rather than disabling it, which CLAUDE.md's security posture (destructive/insecure shortcuts only when explicitly instructed) argues against.
+
+### 2026-08-13 — `.env` holds real local-dev credentials, is gitignored **[owner: user]**
+- **Decision:** Local `.env` contains the actual `STUDYLIFE_BASE_URL`/`STUDYLIFE_API_KEY` for the user's dev instance; `.env.example` (tracked) has placeholders only.
+- **Why:** Standard secret-hygiene per CLAUDE.md ("keine Secrets in Code/Doku/Tests"); `.gitignore` excludes `.env*` except `.env.example` from the very first commit, before `.env` was written.
+
+### 2026-08-13 — Claude Desktop config location: MSIX-packaged app redirects `%APPDATA%\Claude` **[owner: assistant]**
+- **Finding:** On this machine, the "Claude" app is installed as an MSIX-packaged app (package id `Claude_pzs8sxrjxfjjc`), not a traditional installer. Its `%APPDATA%\Claude` is redirected by Windows to `%LOCALAPPDATA%\Packages\Claude_pzs8sxrjxfjjc\LocalCache\Roaming\Claude\`. `claude_desktop_config.json` lives there, confirmed both by reading the app's own logs (`logs\main.log`: `LocalMcpServerManager`/`localMcpBridge`, `configType: "stdio"`) and by the user's Settings → Developer → "Local MCP servers" pointing at the same path.
+- **Why documented:** The initial README instructions assumed the classic `%APPDATA%\Claude\claude_desktop_config.json` path, which doesn't exist on this install (only the redirected one does) — worth a note for anyone else setting this up on a similarly MSIX-packaged install, since the standard published docs don't mention the redirect. Also: this app version's "Benutzerdefinierten Connector hinzufügen" UI is remote-URL-only (Streamable HTTP, now S4 scope) — local stdio servers are added exclusively by editing `claude_desktop_config.json` directly, confirmed via Settings → Developer → "Local MCP servers".
+
+### 2026-08-13 — S1 milestone verified end-to-end, including inside the real Claude app **[owner: assistant]**
+- **Verification:** `uv run studylife-mcp` over stdio, driven by a throwaway MCP client probe script (`mcp.client.stdio.stdio_client` + `ClientSession`), successfully listed `list_courses` and returned real course data from the user's local StudyLife instance. `ruff check`, `ruff format --check`, `mypy --strict src`, and `pytest` (3 tests: happy path, 401, timeout, all `respx`-mocked) all pass locally. Beyond the probe script: added `mcpServers.studylife` to the real `claude_desktop_config.json` (see location finding above), restarted the app, confirmed connection in `main.log` (`Connected to studylife (1 tools)`), and the user asked the live app for their course list — it called `list_courses` and returned a correct, complete 6-semester overview (30 courses across all semesters, correctly grouped) from the real StudyLife instance.
+- **S1 Definition of Done (per CLAUDE.md): met.** CI green (lint/mypy/pytest), README current, decisions.md current, verified end-to-end against the real instance — not just mocks.
+
+### 2026-08-13 — Home Assistant removed from project scope entirely **[owner: user]**
+- **Decision:** `studylife-mcp` exposes StudyLife data only. The originally planned Home Assistant read/write access (S4 in the old S1–S5 plan, plus the "Home Assistant" prior-knowledge section) is removed, not deferred — CLAUDE.md, README, and `pyproject.toml`'s description updated accordingly. Milestones renumbered S1–S4 (old S5 "Streamable HTTP transport" is now S4).
+- **Why:** User's call. The user's actual Home Assistant instance already has its own StudyLife integration that pulls StudyLife data via the StudyLife REST API (the same `X-Api-Key` mechanism, using the `ApiKeyHash` "Home Assistant" key slot) — HA is a *consumer* of StudyLife's API, not an independent data source this MCP server needs to expose. Building separate HA access here would duplicate that existing integration's job rather than add new capability.
+- **Follow-up:** GitHub repo description/topics updated to match (StudyLife-only, `home-assistant` topic removed).
