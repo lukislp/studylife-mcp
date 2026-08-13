@@ -16,8 +16,13 @@
 # and identical fix as studylife-ai already solved for the same StudyLife instance.
 #
 # MCP_PUBLIC_URL is this server's own externally-reachable identity (OAuth issuer_url/
-# resource_server_url) - the home.lan hostname exposed via k8s/06-httproute.yaml, not
-# StudyLife's.
+# resource_server_url) - it lives in k8s/02-secret.yaml instead of here, even though it isn't
+# secret material in the usual sense: it's the public Tailscale Funnel hostname
+# (k8s/07-tailscale-funnel.yaml), and this ConfigMap is a plain, unencrypted, committed file in
+# a public repo - putting a value there that resolves the CI/CD-tracked change history would
+# just be the searchable, permanent version of writing it in decisions.md, which the user
+# explicitly didn't want either. Being in the Secret keeps it bootstrap-only (applied once by
+# hand), consistent with where it actually needs to be set anyway.
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -27,7 +32,6 @@ data:
   STUDYLIFE_BASE_URL: "https://studylife-web.studylife-scale.svc.cluster.local"
   STUDYLIFE_CA_CERT_PATH: "/etc/studylife-ca/ca.crt"
 
-  MCP_PUBLIC_URL: "https://studylife-mcp.home.lan"
   MCP_HTTP_HOST: "0.0.0.0"
   MCP_HTTP_PORT: "8000"
   MCP_OAUTH_DB_PATH: "/app/data/oauth.db"
