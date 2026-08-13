@@ -1,0 +1,33 @@
+# Non-secret runtime configuration. Flux-managed (see k8s/flux-deploy/kustomization.yaml) -
+# kustomize-controller's ClusterRole (studylife repo's k8s/flux/06-reconciler-rbac.yaml) grants
+# "configmaps" but deliberately NOT "secrets" - see k8s/02-secret.yaml for why that one stays
+# bootstrap-only.
+#
+# STUDYLIFE_BASE_URL carries the real cluster-internal value directly (not a placeholder) -
+# this ConfigMap is Flux-managed, so a placeholder here would get silently reapplied over any
+# manual substitution on every reconcile - same reasoning studylife-ai's own k8s/01-config.yaml
+# documents for the identical value.
+#
+# Cluster-internal Service DNS, not the public studylife.home.lan hostname: avoids the
+# round-trip through the public Gateway for pure pod-to-pod traffic. StudyLife forces HTTPS
+# even internally (UseHttpsRedirection), signed by its own cluster-internal cert-manager CA -
+# not in any public trust store, hence STUDYLIFE_CA_CERT_PATH (k8s/03-studylife-ca.yaml) and
+# the client.py change (studylife_ca_cert_path) that makes this work at all. Identical problem
+# and identical fix as studylife-ai already solved for the same StudyLife instance.
+#
+# MCP_PUBLIC_URL is this server's own externally-reachable identity (OAuth issuer_url/
+# resource_server_url) - the home.lan hostname exposed via k8s/06-httproute.yaml, not
+# StudyLife's.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: studylife-mcp-config
+  namespace: studylife-mcp
+data:
+  STUDYLIFE_BASE_URL: "https://studylife-web.studylife-scale.svc.cluster.local"
+  STUDYLIFE_CA_CERT_PATH: "/etc/studylife-ca/ca.crt"
+
+  MCP_PUBLIC_URL: "https://studylife-mcp.home.lan"
+  MCP_HTTP_HOST: "0.0.0.0"
+  MCP_HTTP_PORT: "8000"
+  MCP_OAUTH_DB_PATH: "/app/data/oauth.db"

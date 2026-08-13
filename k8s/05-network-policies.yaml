@@ -1,0 +1,55 @@
+# Default-deny ingress baseline, egress stays open (this server calls out to StudyLife and,
+# in HTTP+OAuth mode, is called by whatever remote MCP client - no fixed egress allowlist,
+# same strategy as studylife-ai's own k8s/05-network-policies.yaml). Bootstrap-only, NOT
+# Flux-managed - kustomize-controller's ClusterRole (studylife repo's
+# k8s/flux/06-reconciler-rbac.yaml) has no "networkpolicies" permission.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+  namespace: studylife-mcp
+spec:
+  podSelector: {}
+  policyTypes: ["Ingress"]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns
+  namespace: studylife-mcp
+spec:
+  podSelector: {}
+  policyTypes: ["Egress"]
+  egress:
+    - to:
+        - namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: kube-system } }
+      ports:
+        - { protocol: UDP, port: 53 }
+        - { protocol: TCP, port: 53 }
+    - {} # egress otherwise unrestricted - this policy only adds an explicit DNS allowance
+---
+# Lets the Gateway (NGF data plane, k8s/06-httproute.yaml) reach the pod - same pattern as
+# studylife's own k8s/12-network-policies.yaml "allow-nginx-gateway-to-*" rules. Port 8000 is
+# the pod's real container port (matches the Service's targetPort - no port-remapping here,
+# unlike e.g. studylife-web's 8080/8443 split).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-nginx-gateway-to-studylife-mcp
+  namespace: studylife-mcp
+spec:
+  podSelector: { matchLabels: { app: studylife-mcp } }
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: nginx-gateway } }
+      ports:
+        - { protocol: TCP, port: 8000 }
+
+# NOTE: this namespace has no default-deny EGRESS (only ingress, see default-deny-ingress
+# above) - egress to StudyLife is open by default from THIS side. But studylife-scale (where
+# StudyLife itself lives) DOES have a default-deny-ingress of its own - reaching studylife-web
+# also requires an explicit allow-rule on ITS side, added to the studylife repo's own
+# k8s/12-network-policies.yaml (allow-studylife-mcp-to-web), not here. Metrics/liveness probes
+# from kubelet aren't subject to NetworkPolicy at all (they originate from the node, not a
+# pod), so k8s/04-app.yaml's probes need no allowance either.

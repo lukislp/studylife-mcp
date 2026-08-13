@@ -1,0 +1,86 @@
+# The service itself. Image tag is a placeholder ("0.1.0") overwritten by Flux's
+# ImageUpdateAutomation the moment the studylife repo's k8s/flux/15-studylife-mcp-image-update-
+# automation.yaml first reconciles against a real published tag. Dockerfile creates "appuser"
+# with an explicit numeric --uid 1000, so runAsNonRoot/runAsUser is safe without live
+# inspection - this repo's own Dockerfile, not an opaque third-party image.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: studylife-mcp-data
+  namespace: studylife-mcp
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests: {storage: 256Mi}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: studylife-mcp
+  namespace: studylife-mcp
+spec:
+  replicas: 1
+  strategy:
+    # Single instance with an RWO volume - oauth.db is a plain SQLite file (oauth_store.py),
+    # not built for concurrent writers, same reasoning as studylife-ai/Qdrant/uptime-kuma.
+    type: Recreate
+  selector:
+    matchLabels: {app: studylife-mcp}
+  template:
+    metadata:
+      labels: {app: studylife-mcp}
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        # Makes the PVC mount group-writable by UID 1000 on first mount - without this, a
+        # freshly-provisioned PersistentVolume is root-owned and the non-root container gets
+        # "Permission denied" writing to /app/data/oauth.db.
+        fsGroup: 1000
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: studylife-mcp
+          image: ghcr.io/lukislp/studylife-mcp:0.1.0 # {"$imagepolicy": "flux-system:studylife-mcp"}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: ["ALL"]}
+          envFrom:
+            - configMapRef: {name: studylife-mcp-config}
+            - secretRef: {name: studylife-mcp-secrets}
+          ports:
+            - containerPort: 8000
+          resources:
+            requests: {cpu: 100m, memory: 200Mi}
+            limits: {cpu: 500m, memory: 512Mi}
+          readinessProbe:
+            httpGet: {path: /health, port: 8000}
+            initialDelaySeconds: 10
+            periodSeconds: 5
+          livenessProbe:
+            httpGet: {path: /health, port: 8000}
+            initialDelaySeconds: 20
+            periodSeconds: 10
+          volumeMounts:
+            - name: data
+              mountPath: /app/data
+            - name: studylife-ca
+              mountPath: /etc/studylife-ca
+              readOnly: true
+      volumes:
+        - name: data
+          persistentVolumeClaim: {claimName: studylife-mcp-data}
+        - name: studylife-ca
+          configMap: {name: studylife-internal-ca}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: studylife-mcp
+  namespace: studylife-mcp
+spec:
+  type: ClusterIP
+  selector: {app: studylife-mcp}
+  ports:
+    - port: 8000
+      targetPort: 8000

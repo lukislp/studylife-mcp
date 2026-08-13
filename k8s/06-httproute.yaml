@@ -1,0 +1,54 @@
+# HTTPRoute for the NGF gateway (studylife repo's k8s/07c-gateway.yaml), home.lan only for
+# now (no public hostname/DNS yet - see docs/decisions.md). Deliberately NO BackendTLSPolicy,
+# unlike studylife-web/uptime-kuma/grafana's HTTPRoutes in the studylife repo: this server's
+# own HTTP transport (main_http, see Dockerfile/README) only ever speaks plain HTTP - it does
+# not terminate TLS itself, by design ("run this behind your own reverse proxy"). A
+# BackendTLSPolicy here would make the Gateway attempt a TLS handshake against a backend that
+# doesn't speak TLS, which would break routing rather than add security - flagged explicitly
+# in case this repo's specific NGF setup turns out to need one universally regardless (would
+# surface as a real connection error on first test, not a silent misconfiguration).
+#
+# Requires a DNS entry for studylife-mcp.home.lan pointing at the Gateway's MetalLB IP -
+# separate, manual step (not part of this repo or the studylife repo's k8s/), same as however
+# studylife.home.lan itself is resolved today.
+#
+# Bootstrap-only, NOT Flux-managed - same RBAC reasoning as k8s/00-namespace.yaml/
+# k8s/02-secret.yaml/k8s/05-network-policies.yaml (kustomize-controller's ClusterRole has no
+# permission on the gateway.networking.k8s.io/gateway.nginx.org API groups at all).
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: studylife-mcp
+  namespace: studylife-mcp
+spec:
+  parentRefs:
+    - name: studylife-gateway
+      namespace: nginx-gateway
+  hostnames:
+    - studylife-mcp.home.lan
+  rules:
+    - backendRefs:
+        - name: studylife-mcp
+          port: 8000
+---
+# Same modest rate limit as the studylife repo's other exposed home.lan services
+# (k8s/07d-httproutes.yaml) - personal-scale traffic, no reason to diverge.
+apiVersion: gateway.nginx.org/v1alpha1
+kind: RateLimitPolicy
+metadata:
+  name: studylife-mcp-rate-limit
+  namespace: studylife-mcp
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      name: studylife-mcp
+  rateLimit:
+    local:
+      rules:
+        - zoneSize: 10m
+          key: "$binary_remote_addr"
+          rate: 20r/s
+          burst: 200
+          noDelay: true
+    rejectCode: 503
