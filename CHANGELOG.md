@@ -1,3 +1,10 @@
+# [1.4.0](https://github.com/lukislp/studylife-mcp/compare/v1.3.0...v1.4.0) (2026-08-13)
+
+
+### Features
+
+* connected-apps self-service page, deliberately internal-only ([0c91720](https://github.com/lukislp/studylife-mcp/commit/0c91720d4b6df8408ab163be889cff2205fb298f))
+
 # [1.3.0](https://github.com/lukislp/studylife-mcp/compare/v1.2.1...v1.3.0) (2026-08-13)
 
 
