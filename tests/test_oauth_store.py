@@ -41,6 +41,36 @@ async def test_get_unknown_client_returns_none(store: OAuthStore) -> None:
     assert await store.get_client("nope") is None
 
 
+async def test_count_clients_by_status_empty_store(store: OAuthStore) -> None:
+    assert await store.count_clients_by_status() == {"activated": 0, "pending": 0}
+
+
+async def test_count_clients_by_status_counts_pending_and_activated(store: OAuthStore) -> None:
+    await store.register_client(
+        OAuthClientInformationFull(
+            client_id="pending-client",
+            redirect_uris=[AnyUrl("https://client.example/callback")],
+        )
+    )
+    await store.register_client(
+        OAuthClientInformationFull(
+            client_id="activated-client",
+            redirect_uris=[AnyUrl("https://client.example/callback")],
+        )
+    )
+    await store.save_access_token(
+        AccessToken(
+            token="access-1",
+            client_id="activated-client",
+            scopes=["studylife"],
+            expires_at=int(time.time()) + 3600,
+            subject="user-subject",
+        )
+    )
+
+    assert await store.count_clients_by_status() == {"activated": 1, "pending": 1}
+
+
 async def test_unused_client_is_purged_after_ttl_on_next_registration(
     store: OAuthStore,
 ) -> None:

@@ -266,9 +266,14 @@ flagged in its tool's description as user-authored data, not instructions.
 
 `GET /metrics` (HTTP mode only) exposes Prometheus metrics: tool-call counts
 and duration by tool and outcome (`studylife_mcp_tool_calls_total`,
-`studylife_mcp_tool_call_duration_seconds`), and rate-limit rejections by
-path (`studylife_mcp_rate_limit_rejections_total`) — the same underlying
-measurements as the structured audit log, just also exported for scraping.
+`studylife_mcp_tool_call_duration_seconds`), rate-limit rejections by path
+(`studylife_mcp_rate_limit_rejections_total`) — the same underlying
+measurements as the structured audit log, just also exported for scraping —
+and currently registered OAuth clients by activation status
+(`studylife_mcp_registered_clients{status="activated"|"pending"}`, queried
+fresh from the database on every scrape), a direct window into whether the
+DCR rate-limit/TTL-cleanup pair is keeping up with real traffic, not just
+that it exists.
 Reached only by the author's own in-cluster Prometheus (pod-to-pod, not
 through any Ingress/Gateway/Funnel path — see [k8s/](k8s/) and
 [docs/decisions.md](docs/decisions.md)); running this yourself, point your

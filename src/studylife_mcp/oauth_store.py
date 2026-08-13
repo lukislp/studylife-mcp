@@ -129,6 +129,20 @@ class OAuthStore:
 
     # --- clients (RFC 7591 dynamic client registration) ---
 
+    async def count_clients_by_status(self) -> dict[str, int]:
+        """Counts for the studylife_mcp_registered_clients Gauge (metrics.py) - queried
+        fresh on every /metrics scrape rather than tracked incrementally, so it always
+        reflects the real table, including whatever TTL cleanup just removed."""
+        async with self._connection() as conn:
+            cursor = await conn.execute(
+                "SELECT activated_at IS NOT NULL, COUNT(*) FROM clients GROUP BY 1"
+            )
+            rows = await cursor.fetchall()
+        counts = {"activated": 0, "pending": 0}
+        for activated, count in rows:
+            counts["activated" if activated else "pending"] = count
+        return counts
+
     async def get_client(self, client_id: str) -> OAuthClientInformationFull | None:
         async with self._connection() as conn:
             cursor = await conn.execute(
