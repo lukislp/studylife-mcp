@@ -9,8 +9,8 @@ Deliberately scoped narrower than its sister project
 MCP client (e.g. Claude Desktop) is the agent, this server just exposes cleanly
 modeled tools and resources.
 
-**Status:** S1 complete — one read-only tool (`list_courses`) over stdio, verified end-to-end
-against a real StudyLife instance and inside Claude Desktop.
+**Status:** S2 in progress — five read-only tools over stdio, verified end-to-end
+against a real StudyLife instance and (S1) inside Claude Desktop.
 
 ## Setup (Claude Desktop, stdio)
 
@@ -57,6 +57,10 @@ against a real StudyLife instance and inside Claude Desktop.
 | Tool | Effect |
 |---|---|
 | `list_courses` | Read-only. Lists all courses of the active study program (semester, code, color, icon, topics, ECTS). Does not modify any data. |
+| `list_notes` | Read-only. Lists all notes (title, content, course/session link, timestamps). Does not modify any data. |
+| `search_notes` | Read-only. Full-text searches notes by title and content. Does not modify any data. |
+| `list_sessions` | Read-only. Lists all study sessions/calendar entries (course, time range, topic, notes, completion status). Does not modify any data. |
+| `list_course_goals` | Read-only. Lists per-course learning goals (target date, completion status, grade, completed topics, tag). No aggregate ECTS total. Does not modify any data. |
 
 ## Development
 
