@@ -1,3 +1,10 @@
+## [1.1.1](https://github.com/lukislp/studylife-mcp/compare/v1.1.0...v1.1.1) (2026-08-13)
+
+
+### Bug Fixes
+
+* **ci:** tag images by semantic-release's real output, not the dry run ([58858ee](https://github.com/lukislp/studylife-mcp/commit/58858eee2986da630f53b76d4c4b5545a5dcecc2))
+
 # [1.1.0](https://github.com/lukislp/studylife-mcp/compare/v1.0.0...v1.1.0) (2026-08-13)
 
 
