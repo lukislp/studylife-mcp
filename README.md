@@ -254,7 +254,7 @@ flagged in its tool's description as user-authored data, not instructions.
   public Tailscale Funnel URL: its `Ingress` uses an explicit path allowlist
   rather than a `defaultBackend`, so `/connected-apps` 404s at the ingress
   controller before ever reaching the pod, reachable only via the
-  tailnet/LAN-only `studylife-mcp.home.lan` route. See
+  tailnet/LAN-only `studylife-mcp.heim.lan` route. See
   [docs/decisions.md](docs/decisions.md).
 
 ## Development

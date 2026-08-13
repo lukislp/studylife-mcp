@@ -8,7 +8,7 @@
 # manual substitution on every reconcile - same reasoning studylife-ai's own k8s/01-config.yaml
 # documents for the identical value.
 #
-# Cluster-internal Service DNS, not the public studylife.home.lan hostname: avoids the
+# Cluster-internal Service DNS, not the public studylife.heim.lan hostname: avoids the
 # round-trip through the public Gateway for pure pod-to-pod traffic. StudyLife forces HTTPS
 # even internally (UseHttpsRedirection), signed by its own cluster-internal cert-manager CA -
 # not in any public trust store, hence STUDYLIFE_CA_CERT_PATH (k8s/03-studylife-ca.yaml) and

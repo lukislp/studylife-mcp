@@ -1,6 +1,6 @@
 # Public exposure via Tailscale Funnel (see docs/decisions.md's "Public exposure: Tailscale
 # Funnel" entry) - separate from k8s/06-httproute.yaml, which only ever serves
-# studylife-mcp.home.lan inside the tailnet/LAN. This Ingress is the ONE thing in the whole
+# studylife-mcp.heim.lan inside the tailnet/LAN. This Ingress is the ONE thing in the whole
 # cluster allowed to become reachable from the public internet, and that's enforced by the
 # tailnet ACL policy itself, not just by convention:
 #
@@ -23,7 +23,7 @@
 # actually needs (the protocol endpoint, the OAuth dance, discovery metadata) are reachable
 # from the public internet. /connected-apps (the self-service "revoke a client's access"
 # page, oauth_provider.py) is deliberately absent - it stays reachable only via
-# k8s/06-httproute.yaml's studylife-mcp.home.lan route (tailnet/LAN only), since it lets a
+# k8s/06-httproute.yaml's studylife-mcp.heim.lan route (tailnet/LAN only), since it lets a
 # caller view/manage which clients hold live access to a StudyLife account and shouldn't be
 # reachable by anyone who merely finds this public URL. Same principle as the ACL tag
 # scoping above: enforced structurally (the ingress controller 404s an unlisted path before

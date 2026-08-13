@@ -439,7 +439,7 @@ def register_oauth_routes(mcp: MCPServer, store: OAuthStore, settings: Settings)
     # Self-service "which apps have access to my StudyLife account, revoke one" page.
     # Deliberately NOT reachable via the public Tailscale Funnel route (see
     # k8s/07-tailscale-funnel.yaml's path allowlist, which omits /connected-apps) - only
-    # from the tailnet/LAN-only studylife-mcp.home.lan route. Re-proves ownership the same
+    # from the tailnet/LAN-only studylife-mcp.heim.lan route. Re-proves ownership the same
     # way /login does (a real StudyLife key), rather than trusting anything from the
     # already-revealed access token, since the whole point of this page is to let someone
     # audit/undo access even if a token were compromised.

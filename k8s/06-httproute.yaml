@@ -1,5 +1,9 @@
-# HTTPRoute for the NGF gateway (studylife repo's k8s/07c-gateway.yaml), home.lan only for
-# now (no public hostname/DNS yet - see docs/decisions.md). Deliberately NO BackendTLSPolicy,
+# HTTPRoute for the NGF gateway (studylife repo's k8s/07c-gateway.yaml), heim.lan only for
+# now (LAN/tailnet only - see docs/decisions.md). Hostname is "heim.lan", not "home.lan" -
+# matches the live convention every other listener on that shared Gateway actually uses
+# (confirmed via `kubectl -n nginx-gateway get gateway studylife-gateway -o yaml`), which had
+# drifted from that repo's own k8s/07c-gateway.yaml file at some point before this listener
+# was added. Deliberately NO BackendTLSPolicy,
 # unlike studylife-web/uptime-kuma/grafana's HTTPRoutes in the studylife repo: this server's
 # own HTTP transport (main_http, see Dockerfile/README) only ever speaks plain HTTP - it does
 # not terminate TLS itself, by design ("run this behind your own reverse proxy"). A
@@ -8,9 +12,9 @@
 # in case this repo's specific NGF setup turns out to need one universally regardless (would
 # surface as a real connection error on first test, not a silent misconfiguration).
 #
-# Requires a DNS entry for studylife-mcp.home.lan pointing at the Gateway's MetalLB IP -
+# Requires a DNS entry for studylife-mcp.heim.lan pointing at the Gateway's MetalLB IP -
 # separate, manual step (not part of this repo or the studylife repo's k8s/), same as however
-# studylife.home.lan itself is resolved today.
+# studylife.heim.lan itself is resolved today.
 #
 # Bootstrap-only, NOT Flux-managed - same RBAC reasoning as k8s/00-namespace.yaml/
 # k8s/02-secret.yaml/k8s/05-network-policies.yaml (kustomize-controller's ClusterRole has no
@@ -25,13 +29,13 @@ spec:
     - name: studylife-gateway
       namespace: nginx-gateway
   hostnames:
-    - studylife-mcp.home.lan
+    - studylife-mcp.heim.lan
   rules:
     - backendRefs:
         - name: studylife-mcp
           port: 8000
 ---
-# Same modest rate limit as the studylife repo's other exposed home.lan services
+# Same modest rate limit as the studylife repo's other exposed heim.lan services
 # (k8s/07d-httproutes.yaml) - personal-scale traffic, no reason to diverge.
 apiVersion: gateway.nginx.org/v1alpha1
 kind: RateLimitPolicy
