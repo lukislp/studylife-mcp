@@ -1,3 +1,10 @@
+## [1.2.1](https://github.com/lukislp/studylife-mcp/compare/v1.2.0...v1.2.1) (2026-08-13)
+
+
+### Bug Fixes
+
+* **k8s:** move MCP_PUBLIC_URL into the Secret, point it at the public Funnel URL ([ded8558](https://github.com/lukislp/studylife-mcp/commit/ded8558d2e6c9c9ecc2e7d59d8b286ec635ff19c))
+
 # [1.2.0](https://github.com/lukislp/studylife-mcp/compare/v1.1.1...v1.2.0) (2026-08-13)
 
 
