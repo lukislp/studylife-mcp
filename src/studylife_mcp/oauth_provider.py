@@ -151,24 +151,90 @@ class StudyLifeOAuthProvider(
         )
 
 
+# Mirrors StudyLife's own design system (StudyLife.Client/wwwroot/css/base.css +
+# shared.css's .input/.btn-primary/.modal) rather than inventing a separate look for this
+# page - same font/color tokens, same card shell, same brand mark ("✦ StudyLife"), so the
+# login screen a caller lands on feels like part of StudyLife, not a generic OAuth form.
+# Duplicated here (not shared via a stylesheet link) because this page is served standalone
+# by this server, not by StudyLife itself.
+_PAGE_STYLE = """
+  @import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;1,9..40,300&display=swap');
+  :root {
+    color-scheme: dark light;
+    --font: 'DM Sans', sans-serif;
+    --bg: #0e0e0f; --bg2: #161618; --bg3: #1e1e21;
+    --border: rgba(255,255,255,0.07); --border2: rgba(255,255,255,0.12);
+    --text: #e8e6e0; --text2: #9d9b93; --text3: #6b6965;
+    --accent: #CC785C;
+    --transition: 0.2s ease;
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+      color-scheme: light;
+      --bg: #f4f2ee; --bg2: #ffffff; --bg3: #ebe8e2;
+      --border: rgba(0,0,0,0.06); --border2: rgba(0,0,0,0.12);
+      --text: #1a1916; --text2: #5a5752; --text3: #9a9892;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh; padding: 1.5rem;
+    display: flex; align-items: center; justify-content: center;
+    font-family: var(--font); background: var(--bg); color: var(--text);
+    -webkit-font-smoothing: antialiased;
+  }
+  .card {
+    background: var(--bg2); border: 1px solid var(--border2); border-radius: 16px;
+    width: 400px; max-width: 100%; padding: 1.75rem;
+  }
+  .brand { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 1.5rem; }
+  .brand-icon { font-size: 1.3rem; color: var(--accent); }
+  .brand-name { font-size: 1rem; font-weight: 500; letter-spacing: -0.01em; }
+  h1 { font-size: 1.4rem; font-weight: 300; letter-spacing: -0.02em; margin: 0 0 0.6rem; }
+  p { margin: 0 0 0.5rem; font-size: 0.875rem; color: var(--text2); line-height: 1.5; }
+  .hint { font-size: 0.8rem; color: var(--text3); margin-bottom: 1.25rem; }
+  label {
+    display: block; font-size: 0.7rem; font-weight: 500; text-transform: uppercase;
+    letter-spacing: 0.08em; color: var(--text3); margin-bottom: 0.5rem;
+  }
+  .input {
+    background: var(--bg3); border: 1px solid var(--border); border-radius: 8px;
+    padding: 0.6rem 0.875rem; font-family: var(--font); font-size: 0.875rem; color: var(--text);
+    outline: none; transition: var(--transition); width: 100%; margin-bottom: 1.25rem;
+  }
+  .input:focus { border-color: var(--accent); }
+  .btn-primary {
+    background: var(--accent); color: white; border: none; border-radius: 8px;
+    padding: 0.65rem 1.25rem; font-size: 0.875rem; font-weight: 500; font-family: var(--font);
+    cursor: pointer; transition: var(--transition); width: 100%;
+  }
+  .btn-primary:hover { opacity: 0.9; }
+  .error {
+    font-size: 0.8rem; color: #E17055; background: rgba(225,112,85,0.1);
+    border: 1px solid rgba(225,112,85,0.3); border-radius: 8px; padding: 0.6rem 0.8rem;
+    margin-bottom: 1.25rem;
+  }
+"""
+
+_BRAND_HTML = (
+    '<div class="brand"><span class="brand-icon">&#10022;</span>'
+    '<span class="brand-name">StudyLife</span></div>'
+)
+
+
 def _render_login_page(request_id: str, *, error: str | None = None) -> str:
     error_html = f'<p class="error">{html.escape(error)}</p>' if error else ""
     return f"""<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Connect to StudyLife</title>
-<style>
-  body {{
-    font-family: system-ui, sans-serif; max-width: 28rem; margin: 4rem auto; padding: 0 1rem;
-  }}
-  input {{ width: 100%; padding: 0.5rem; margin: 0.5rem 0 1rem; box-sizing: border-box; }}
-  button {{ padding: 0.5rem 1.5rem; }}
-  .error {{ color: #b00020; }}
-  .hint {{ color: #555; font-size: 0.9rem; }}
-</style>
+<style>{_PAGE_STYLE}</style>
 </head>
 <body>
+<div class="card">
+{_BRAND_HTML}
 <h1>Connect to StudyLife</h1>
 <p>Enter your StudyLife MCP API key to let this client access your StudyLife data.</p>
 <p class="hint">Get one from StudyLife's Setup page &rarr; "StudyLife MCP Server" card.</p>
@@ -176,18 +242,33 @@ def _render_login_page(request_id: str, *, error: str | None = None) -> str:
 <form method="post" action="/login">
   <input type="hidden" name="request_id" value="{html.escape(request_id)}">
   <label for="api_key">API key</label>
-  <input type="password" id="api_key" name="api_key" autocomplete="off" required>
-  <button type="submit">Connect</button>
+  <input class="input" type="password" id="api_key" name="api_key" autocomplete="off" required>
+  <button class="btn-primary" type="submit">Connect</button>
 </form>
+</div>
 </body>
 </html>
 """
 
 
-_EXPIRED_LINK_HTML = (
-    "<!doctype html><p>This login link is invalid or has expired. "
-    "Please restart the connection from your MCP client.</p>"
-)
+_EXPIRED_LINK_HTML = f"""<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Link expired &mdash; StudyLife</title>
+<style>{_PAGE_STYLE}</style>
+</head>
+<body>
+<div class="card">
+{_BRAND_HTML}
+<h1>Link expired</h1>
+<p>This login link is invalid or has expired. Please restart the connection
+from your MCP client.</p>
+</div>
+</body>
+</html>
+"""
 
 
 def register_oauth_routes(mcp: MCPServer, store: OAuthStore, settings: Settings) -> None:
