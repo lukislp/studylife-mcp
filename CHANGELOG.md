@@ -1,3 +1,11 @@
+# [1.1.0](https://github.com/lukislp/studylife-mcp/compare/v1.0.0...v1.1.0) (2026-08-13)
+
+
+### Features
+
+* rate-limit and TTL-clean unauthenticated OAuth client registration ([ba600eb](https://github.com/lukislp/studylife-mcp/commit/ba600eb235fe322810952571cd58900dd5908abd))
+* support a private CA cert for StudyLife TLS trust, add /health route ([755ffb1](https://github.com/lukislp/studylife-mcp/commit/755ffb1de395882a8534464dc0bd411a50d1a351))
+
 # 1.0.0 (2026-08-13)
 
 
