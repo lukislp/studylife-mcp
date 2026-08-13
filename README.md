@@ -9,14 +9,17 @@ Deliberately scoped narrower than its sister project
 MCP client (e.g. Claude Desktop) is the agent, this server just exposes cleanly
 modeled tools and resources.
 
-**Status:** S2 in progress — five read-only tools over stdio, verified end-to-end
-against a real StudyLife instance and (S1) inside Claude Desktop.
+**Status:** S3 complete — five read-only tools plus two write tools (`create_note`,
+`create_session`) over stdio, with a per-tool-call audit log. Verified end-to-end
+against a real StudyLife instance and inside Claude Desktop, including a
+dedicated `McpApiKeyHash` key slot (see [docs/decisions.md](docs/decisions.md)).
 
 ## Setup (Claude Desktop, stdio)
 
 1. Copy `.env.example` to `.env` and fill in your StudyLife instance URL and API key
-   (Setup page in StudyLife → generate an API key; S1 reuses the existing "Home
-   Assistant" key slot for convenience, see [docs/decisions.md](docs/decisions.md)).
+   (Setup page in StudyLife → "StudyLife MCP Server" card → generate a dedicated key;
+   S1/S2 used the "Home Assistant" key slot as an interim measure, see
+   [docs/decisions.md](docs/decisions.md)).
 2. Install dependencies: `uv sync`
 3. Add to your Claude Desktop config (`claude_desktop_config.json`):
 
@@ -61,6 +64,8 @@ against a real StudyLife instance and (S1) inside Claude Desktop.
 | `search_notes` | Read-only. Full-text searches notes by title and content. Does not modify any data. |
 | `list_sessions` | Read-only. Lists all study sessions/calendar entries (course, time range, topic, notes, completion status). Does not modify any data. |
 | `list_course_goals` | Read-only. Lists per-course learning goals (target date, completion status, grade, completed topics, tag). No aggregate ECTS total. Does not modify any data. |
+| `create_note` | Creates a new note (title, content, optional course/session link). Does not modify or delete existing data. |
+| `create_session` | Creates a new study session/calendar entry for a course and time range. Does not modify or delete existing data. |
 
 ## Development
 
