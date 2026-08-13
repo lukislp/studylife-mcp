@@ -19,6 +19,47 @@ COURSE_PAYLOAD = [
     }
 ]
 
+NOTE_PAYLOAD = [
+    {
+        "id": 1,
+        "title": "Lecture recap",
+        "content": "Covered gradient descent and regularization.",
+        "createdAt": "2026-08-01T10:00:00",
+        "updatedAt": "2026-08-02T11:30:00",
+        "courseId": 1,
+        "sessionId": None,
+    }
+]
+
+SESSION_PAYLOAD = [
+    {
+        "id": 1,
+        "courseId": 1,
+        "courseName": "Machine Learning",
+        "courseColor": "#6C5CE7",
+        "startTime": "2026-08-01T10:00:00",
+        "endTime": "2026-08-01T11:30:00",
+        "topic": "Regression",
+        "notes": "Went well",
+        "isCompleted": True,
+        "timerModeId": 1,
+        "recurrenceGroupId": None,
+    }
+]
+
+COURSE_GOAL_PAYLOAD = [
+    {
+        "courseId": 1,
+        "courseName": "Machine Learning",
+        "targetDate": "2026-09-01T00:00:00",
+        "completionNote": "Finished early",
+        "completedAt": "2026-08-30T00:00:00",
+        "grade": 1.3,
+        "completedTopics": "Regression,Classification",
+        "tag": "core",
+    }
+]
+
 
 @respx.mock
 async def test_list_courses_happy_path(settings: Settings) -> None:
@@ -54,4 +95,158 @@ async def test_list_courses_timeout_raises(settings: Settings) -> None:
 
     with pytest.raises(httpx.TimeoutException):
         await client.list_courses()
+    await client.aclose()
+
+
+@respx.mock
+async def test_list_notes_happy_path(settings: Settings) -> None:
+    respx.get("https://studylife.example.test/api/notes").mock(
+        return_value=httpx.Response(200, json=NOTE_PAYLOAD)
+    )
+    client = StudyLifeClient(settings)
+
+    notes = await client.list_notes()
+
+    assert len(notes) == 1
+    assert notes[0].title == "Lecture recap"
+    assert notes[0].course_id == 1
+    assert notes[0].session_id is None
+    await client.aclose()
+
+
+@respx.mock
+async def test_list_notes_unauthorized_raises(settings: Settings) -> None:
+    respx.get("https://studylife.example.test/api/notes").mock(return_value=httpx.Response(401))
+    client = StudyLifeClient(settings)
+
+    with pytest.raises(httpx.HTTPStatusError):
+        await client.list_notes()
+    await client.aclose()
+
+
+@respx.mock
+async def test_list_notes_timeout_raises(settings: Settings) -> None:
+    respx.get("https://studylife.example.test/api/notes").mock(
+        side_effect=httpx.TimeoutException("timed out")
+    )
+    client = StudyLifeClient(settings)
+
+    with pytest.raises(httpx.TimeoutException):
+        await client.list_notes()
+    await client.aclose()
+
+
+@respx.mock
+async def test_search_notes_happy_path(settings: Settings) -> None:
+    respx.get("https://studylife.example.test/api/notes/search", params={"q": "gradient"}).mock(
+        return_value=httpx.Response(200, json=NOTE_PAYLOAD)
+    )
+    client = StudyLifeClient(settings)
+
+    notes = await client.search_notes("gradient")
+
+    assert len(notes) == 1
+    assert notes[0].title == "Lecture recap"
+    await client.aclose()
+
+
+@respx.mock
+async def test_search_notes_unauthorized_raises(settings: Settings) -> None:
+    respx.get("https://studylife.example.test/api/notes/search", params={"q": "gradient"}).mock(
+        return_value=httpx.Response(401)
+    )
+    client = StudyLifeClient(settings)
+
+    with pytest.raises(httpx.HTTPStatusError):
+        await client.search_notes("gradient")
+    await client.aclose()
+
+
+@respx.mock
+async def test_search_notes_timeout_raises(settings: Settings) -> None:
+    respx.get("https://studylife.example.test/api/notes/search", params={"q": "gradient"}).mock(
+        side_effect=httpx.TimeoutException("timed out")
+    )
+    client = StudyLifeClient(settings)
+
+    with pytest.raises(httpx.TimeoutException):
+        await client.search_notes("gradient")
+    await client.aclose()
+
+
+@respx.mock
+async def test_list_sessions_happy_path(settings: Settings) -> None:
+    respx.get("https://studylife.example.test/api/sessions").mock(
+        return_value=httpx.Response(200, json=SESSION_PAYLOAD)
+    )
+    client = StudyLifeClient(settings)
+
+    sessions = await client.list_sessions()
+
+    assert len(sessions) == 1
+    assert sessions[0].course_name == "Machine Learning"
+    assert sessions[0].is_completed is True
+    assert sessions[0].recurrence_group_id is None
+    await client.aclose()
+
+
+@respx.mock
+async def test_list_sessions_unauthorized_raises(settings: Settings) -> None:
+    respx.get("https://studylife.example.test/api/sessions").mock(return_value=httpx.Response(401))
+    client = StudyLifeClient(settings)
+
+    with pytest.raises(httpx.HTTPStatusError):
+        await client.list_sessions()
+    await client.aclose()
+
+
+@respx.mock
+async def test_list_sessions_timeout_raises(settings: Settings) -> None:
+    respx.get("https://studylife.example.test/api/sessions").mock(
+        side_effect=httpx.TimeoutException("timed out")
+    )
+    client = StudyLifeClient(settings)
+
+    with pytest.raises(httpx.TimeoutException):
+        await client.list_sessions()
+    await client.aclose()
+
+
+@respx.mock
+async def test_list_course_goals_happy_path(settings: Settings) -> None:
+    respx.get("https://studylife.example.test/api/coursegoals").mock(
+        return_value=httpx.Response(200, json=COURSE_GOAL_PAYLOAD)
+    )
+    client = StudyLifeClient(settings)
+
+    goals = await client.list_course_goals()
+
+    assert len(goals) == 1
+    assert goals[0].grade == 1.3
+    assert goals[0].completed_topics == "Regression,Classification"
+    assert goals[0].tag == "core"
+    await client.aclose()
+
+
+@respx.mock
+async def test_list_course_goals_unauthorized_raises(settings: Settings) -> None:
+    respx.get("https://studylife.example.test/api/coursegoals").mock(
+        return_value=httpx.Response(401)
+    )
+    client = StudyLifeClient(settings)
+
+    with pytest.raises(httpx.HTTPStatusError):
+        await client.list_course_goals()
+    await client.aclose()
+
+
+@respx.mock
+async def test_list_course_goals_timeout_raises(settings: Settings) -> None:
+    respx.get("https://studylife.example.test/api/coursegoals").mock(
+        side_effect=httpx.TimeoutException("timed out")
+    )
+    client = StudyLifeClient(settings)
+
+    with pytest.raises(httpx.TimeoutException):
+        await client.list_course_goals()
     await client.aclose()
