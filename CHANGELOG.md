@@ -1,3 +1,10 @@
+# [1.6.0](https://github.com/lukislp/studylife-mcp/compare/v1.5.0...v1.6.0) (2026-08-13)
+
+
+### Features
+
+* Prometheus metrics for tool calls and rate-limit rejections ([2d99d11](https://github.com/lukislp/studylife-mcp/commit/2d99d112175712394d48875be25ffcf93e75e0e9))
+
 # [1.5.0](https://github.com/lukislp/studylife-mcp/compare/v1.4.1...v1.5.0) (2026-08-13)
 
 
