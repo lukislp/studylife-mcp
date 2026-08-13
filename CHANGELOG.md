@@ -1,3 +1,10 @@
+# [1.3.0](https://github.com/lukislp/studylife-mcp/compare/v1.2.1...v1.3.0) (2026-08-13)
+
+
+### Features
+
+* match the OAuth login page to StudyLife's own design system ([a364483](https://github.com/lukislp/studylife-mcp/commit/a364483265d1fe684fca7cf7c9492ac313543d42))
+
 ## [1.2.1](https://github.com/lukislp/studylife-mcp/compare/v1.2.0...v1.2.1) (2026-08-13)
 
 
