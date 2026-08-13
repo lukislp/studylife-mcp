@@ -12,7 +12,8 @@ _SCHEMA = """
 CREATE TABLE IF NOT EXISTS clients (
     client_id TEXT PRIMARY KEY,
     info_json TEXT NOT NULL,
-    created_at REAL NOT NULL
+    created_at REAL NOT NULL,
+    activated_at REAL
 );
 CREATE TABLE IF NOT EXISTS pending_auth (
     request_id TEXT PRIMARY KEY,
@@ -49,6 +50,13 @@ CREATE TABLE IF NOT EXISTS user_keys (
 # pending request is discarded. Generous for a human filling in a form once.
 PENDING_AUTH_TTL_SECONDS = 600
 
+# RFC 7591 dynamic client registration is unauthenticated by design (any MCP client
+# self-registers). A client that never completes the OAuth flow (no access token ever
+# issued) within this window is considered abandoned/abuse and gets purged the next
+# time someone registers - see register_client() below. Real clients activate within
+# seconds of registering, so a day is generous headroom, not a tight deadline.
+UNUSED_CLIENT_TTL_SECONDS = 60 * 60 * 24
+
 
 class OAuthStore:
     """SQLite-backed persistence for the OAuth authorization server (oauth_provider.py):
@@ -83,6 +91,14 @@ class OAuthStore:
     async def initialize(self) -> None:
         async with self._connection() as conn:
             await conn.executescript(_SCHEMA)
+            # SQLite's CREATE TABLE IF NOT EXISTS doesn't retrofit new columns onto an
+            # already-existing table (e.g. a DB created before activated_at existed) -
+            # ALTER TABLE, ignoring the "already there" error, makes this idempotent.
+            try:
+                await conn.execute("ALTER TABLE clients ADD COLUMN activated_at REAL")
+            except aiosqlite.OperationalError as exc:
+                if "duplicate column name" not in str(exc):
+                    raise
             await conn.commit()
 
     # --- clients (RFC 7591 dynamic client registration) ---
@@ -97,6 +113,13 @@ class OAuthStore:
 
     async def register_client(self, client_info: OAuthClientInformationFull) -> None:
         async with self._connection() as conn:
+            # Opportunistic cleanup: bounds table growth from registration spam without
+            # a separate background task - runs exactly when new registrations happen,
+            # i.e. exactly when growth would otherwise be unbounded.
+            await conn.execute(
+                "DELETE FROM clients WHERE activated_at IS NULL AND created_at < ?",
+                (time.time() - UNUSED_CLIENT_TTL_SECONDS,),
+            )
             await conn.execute(
                 "INSERT OR REPLACE INTO clients (client_id, info_json, created_at) "
                 "VALUES (?, ?, ?)",
@@ -170,6 +193,12 @@ class OAuthStore:
                 "INSERT OR REPLACE INTO access_tokens (token, client_id, token_json, expires_at) "
                 "VALUES (?, ?, ?, ?)",
                 (token.token, token.client_id, token.model_dump_json(), token.expires_at),
+            )
+            # First real token issued for this client = it completed the OAuth flow at
+            # least once, so the TTL cleanup in register_client() must never sweep it.
+            await conn.execute(
+                "UPDATE clients SET activated_at = COALESCE(activated_at, ?) WHERE client_id = ?",
+                (time.time(), token.client_id),
             )
             await conn.commit()
 

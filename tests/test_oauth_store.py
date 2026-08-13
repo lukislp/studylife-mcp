@@ -41,6 +41,65 @@ async def test_get_unknown_client_returns_none(store: OAuthStore) -> None:
     assert await store.get_client("nope") is None
 
 
+async def test_unused_client_is_purged_after_ttl_on_next_registration(
+    store: OAuthStore,
+) -> None:
+    import studylife_mcp.oauth_store as oauth_store_module
+
+    stale = OAuthClientInformationFull(
+        client_id="stale-client",
+        redirect_uris=[AnyUrl("https://client.example/callback")],
+    )
+    await store.register_client(stale)
+
+    original_ttl = oauth_store_module.UNUSED_CLIENT_TTL_SECONDS
+    oauth_store_module.UNUSED_CLIENT_TTL_SECONDS = -1  # already "stale" the instant it's created
+    try:
+        fresh = OAuthClientInformationFull(
+            client_id="fresh-client",
+            redirect_uris=[AnyUrl("https://client.example/callback")],
+        )
+        await store.register_client(fresh)
+    finally:
+        oauth_store_module.UNUSED_CLIENT_TTL_SECONDS = original_ttl
+
+    assert await store.get_client("stale-client") is None
+    assert await store.get_client("fresh-client") is not None
+
+
+async def test_activated_client_survives_ttl_cleanup(store: OAuthStore) -> None:
+    import studylife_mcp.oauth_store as oauth_store_module
+
+    activated = OAuthClientInformationFull(
+        client_id="activated-client",
+        redirect_uris=[AnyUrl("https://client.example/callback")],
+    )
+    await store.register_client(activated)
+    await store.save_access_token(
+        AccessToken(
+            token="access-1",
+            client_id="activated-client",
+            scopes=["studylife"],
+            expires_at=int(time.time()) + 3600,
+            subject="user-subject",
+        )
+    )
+
+    original_ttl = oauth_store_module.UNUSED_CLIENT_TTL_SECONDS
+    oauth_store_module.UNUSED_CLIENT_TTL_SECONDS = -1
+    try:
+        await store.register_client(
+            OAuthClientInformationFull(
+                client_id="another-client",
+                redirect_uris=[AnyUrl("https://client.example/callback")],
+            )
+        )
+    finally:
+        oauth_store_module.UNUSED_CLIENT_TTL_SECONDS = original_ttl
+
+    assert await store.get_client("activated-client") is not None
+
+
 async def test_pending_authorization_round_trip_and_delete(store: OAuthStore) -> None:
     await store.save_pending_authorization("req-1", "client-1", '{"state": "xyz"}')
 
