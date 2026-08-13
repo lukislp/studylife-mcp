@@ -1,4 +1,6 @@
 import ssl
+from datetime import datetime
+from typing import Any
 
 import httpx
 import truststore
@@ -21,30 +23,87 @@ class StudyLifeClient:
             verify=truststore.SSLContext(ssl.PROTOCOL_TLS_CLIENT),
         )
 
+    async def _request(self, method: str, path: str, **kwargs: Any) -> httpx.Response:
+        response = await self._client.request(method, path, **kwargs)
+        if response.is_error:
+            # httpx's own HTTPStatusError message omits the response body, which is
+            # exactly where StudyLife puts its validation messages (e.g.
+            # "EndTime must be after StartTime.") - include it so callers (and the
+            # LLM acting on a failed write) see the actual reason, not just "400".
+            raise httpx.HTTPStatusError(
+                f"{response.status_code} {response.reason_phrase} for {method} {path}: "
+                f"{response.text}",
+                request=response.request,
+                response=response,
+            )
+        return response
+
     async def list_courses(self) -> list[Course]:
-        response = await self._client.get("/api/courses")
-        response.raise_for_status()
+        response = await self._request("GET", "/api/courses")
         return [Course.model_validate(item) for item in response.json()]
 
     async def list_notes(self) -> list[Note]:
-        response = await self._client.get("/api/notes")
-        response.raise_for_status()
+        response = await self._request("GET", "/api/notes")
         return [Note.model_validate(item) for item in response.json()]
 
     async def search_notes(self, query: str) -> list[Note]:
-        response = await self._client.get("/api/notes/search", params={"q": query})
-        response.raise_for_status()
+        response = await self._request("GET", "/api/notes/search", params={"q": query})
         return [Note.model_validate(item) for item in response.json()]
 
     async def list_sessions(self) -> list[Session]:
-        response = await self._client.get("/api/sessions")
-        response.raise_for_status()
+        response = await self._request("GET", "/api/sessions")
         return [Session.model_validate(item) for item in response.json()]
 
     async def list_course_goals(self) -> list[CourseGoal]:
-        response = await self._client.get("/api/coursegoals")
-        response.raise_for_status()
+        response = await self._request("GET", "/api/coursegoals")
         return [CourseGoal.model_validate(item) for item in response.json()]
+
+    async def create_note(
+        self,
+        title: str,
+        content: str,
+        course_id: int | None = None,
+        session_id: int | None = None,
+    ) -> Note:
+        # CreatedAt/UpdatedAt/Id are set server-side and ignored from the request
+        # body (NotesController.Create) - not sent here.
+        payload = {
+            "title": title,
+            "content": content,
+            "courseId": course_id,
+            "sessionId": session_id,
+        }
+        response = await self._request("POST", "/api/notes", json=payload)
+        return Note.model_validate(response.json())
+
+    async def create_session(
+        self,
+        course_id: int,
+        course_name: str,
+        course_color: str,
+        start_time: datetime,
+        end_time: datetime,
+        topic: str | None = None,
+        notes: str | None = None,
+        is_completed: bool = False,
+        # 1 = default/first timer mode - same fallback SessionsController's own
+        # server-side session creation (PlannerController.GenerateExamPlan) uses
+        # when there's no interactive timer selection.
+        timer_mode_id: int = 1,
+    ) -> Session:
+        payload = {
+            "courseId": course_id,
+            "courseName": course_name,
+            "courseColor": course_color,
+            "startTime": start_time.isoformat(),
+            "endTime": end_time.isoformat(),
+            "topic": topic,
+            "notes": notes,
+            "isCompleted": is_completed,
+            "timerModeId": timer_mode_id,
+        }
+        response = await self._request("POST", "/api/sessions", json=payload)
+        return Session.model_validate(response.json())
 
     async def aclose(self) -> None:
         await self._client.aclose()
