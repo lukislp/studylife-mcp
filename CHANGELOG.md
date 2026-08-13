@@ -1,3 +1,10 @@
+# [1.7.0](https://github.com/lukislp/studylife-mcp/compare/v1.6.0...v1.7.0) (2026-08-13)
+
+
+### Features
+
+* registered-clients gauge, showing activated vs. pending DCR clients ([e16838b](https://github.com/lukislp/studylife-mcp/commit/e16838be51087340df5c0e32166ceeb30c35ee54))
+
 # [1.6.0](https://github.com/lukislp/studylife-mcp/compare/v1.5.0...v1.6.0) (2026-08-13)
 
 
