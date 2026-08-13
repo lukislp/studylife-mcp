@@ -1,12 +1,26 @@
 import hashlib
+import secrets
 import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from dataclasses import dataclass
 
 import aiosqlite
 from cryptography.fernet import Fernet
 from mcp.server.auth.provider import AccessToken, AuthorizationCode, RefreshToken
 from mcp.shared.auth import OAuthClientInformationFull
+
+
+@dataclass(frozen=True)
+class ConnectedClient:
+    """One row of the /connected-apps view - a client that currently holds a live
+    refresh token for some subject, i.e. an app the resource owner has actually
+    authorized (not just registered - see UNUSED_CLIENT_TTL_SECONDS)."""
+
+    client_id: str
+    client_name: str
+    expires_at: float | None
+
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS clients (
@@ -44,6 +58,11 @@ CREATE TABLE IF NOT EXISTS user_keys (
     encrypted_key BLOB NOT NULL,
     created_at REAL NOT NULL
 );
+CREATE TABLE IF NOT EXISTS management_sessions (
+    session_id TEXT PRIMARY KEY,
+    subject TEXT NOT NULL,
+    created_at REAL NOT NULL
+);
 """
 
 # How long a /authorize -> our login form round trip has to complete before the
@@ -56,6 +75,13 @@ PENDING_AUTH_TTL_SECONDS = 600
 # time someone registers - see register_client() below. Real clients activate within
 # seconds of registering, so a day is generous headroom, not a tight deadline.
 UNUSED_CLIENT_TTL_SECONDS = 60 * 60 * 24
+
+# How long a "prove you own this StudyLife key" verification on /connected-apps stays
+# usable for follow-up actions (viewing the list again, revoking an entry) before the
+# StudyLife key has to be re-entered. Short-lived on purpose - this page reveals which
+# clients hold live access to someone's account, so the proof of ownership shouldn't
+# outlive a single sitting at the page.
+MANAGEMENT_SESSION_TTL_SECONDS = 600
 
 
 class OAuthStore:
@@ -265,3 +291,90 @@ class OAuthStore:
         if row is None:
             return None
         return self._fernet.decrypt(row[0]).decode()
+
+    # --- connected-apps self-service (/connected-apps): view/revoke per-subject grants ---
+
+    async def create_management_session(self, subject: str) -> str:
+        """Re-validating the StudyLife key once (same check as /login) proves the
+        caller owns `subject`; this opaque session id stands in for the raw key on
+        every follow-up request on the page (list refresh, revoke click) so the key
+        itself is never echoed back into rendered HTML."""
+        session_id = secrets.token_urlsafe(24)
+        async with self._connection() as conn:
+            await conn.execute(
+                "INSERT INTO management_sessions (session_id, subject, created_at) "
+                "VALUES (?, ?, ?)",
+                (session_id, subject, time.time()),
+            )
+            await conn.commit()
+        return session_id
+
+    async def load_management_session(self, session_id: str) -> str | None:
+        """Returns the verified subject, or None if the session id is unknown or its
+        TTL has passed. Non-destructive, like load_pending_authorization - reused for
+        every action taken on the page during one sitting."""
+        async with self._connection() as conn:
+            cursor = await conn.execute(
+                "SELECT subject, created_at FROM management_sessions WHERE session_id = ?",
+                (session_id,),
+            )
+            row = await cursor.fetchone()
+        if row is None:
+            return None
+        subject, created_at = row
+        if created_at < time.time() - MANAGEMENT_SESSION_TTL_SECONDS:
+            return None
+        return str(subject)
+
+    async def list_connected_clients(self, subject: str) -> list[ConnectedClient]:
+        """Apps with a *live* refresh token for this subject - registering (DCR) alone
+        doesn't grant access, completing the login flow at least once does, and that's
+        exactly what issuing a refresh token represents. Filtered in Python rather than
+        by a SQL column: subject lives inside refresh_tokens.token_json (the SDK's own
+        RefreshToken shape), and this table is tiny at this server's traffic scale."""
+        async with self._connection() as conn:
+            cursor = await conn.execute(
+                "SELECT client_id, token_json, expires_at FROM refresh_tokens"
+            )
+            rows = await cursor.fetchall()
+            results = []
+            for client_id, token_json, expires_at in rows:
+                token = RefreshToken.model_validate_json(token_json)
+                if token.subject != subject:
+                    continue
+                client_cursor = await conn.execute(
+                    "SELECT info_json FROM clients WHERE client_id = ?", (client_id,)
+                )
+                client_row = await client_cursor.fetchone()
+                client_name = client_id
+                if client_row is not None:
+                    client_info = OAuthClientInformationFull.model_validate_json(client_row[0])
+                    client_name = client_info.client_name or client_id
+                results.append(ConnectedClient(client_id, client_name, expires_at))
+        return results
+
+    async def revoke_client_access(self, subject: str, client_id: str) -> None:
+        """Deletes every access/refresh token this subject has for this client - the
+        client keeps its DCR registration (client_id/secret), but has to go through a
+        fresh /authorize -> /login round trip (a real StudyLife-key re-entry) to get
+        anything working again, exactly like a first-time connection."""
+        async with self._connection() as conn:
+            for table in ("access_tokens", "refresh_tokens"):
+                cursor = await conn.execute(
+                    f"SELECT token, token_json FROM {table} WHERE client_id = ?",
+                    (client_id,),
+                )
+                rows = await cursor.fetchall()
+                model = AccessToken if table == "access_tokens" else RefreshToken
+                stale_tokens = [
+                    token
+                    for token, token_json in rows
+                    if model.model_validate_json(token_json).subject == subject
+                ]
+                if stale_tokens:
+                    placeholders = ",".join("?" for _ in stale_tokens)
+                    await conn.execute(
+                        f"DELETE FROM {table} WHERE token IN ({placeholders})",
+                        stale_tokens,
+                    )
+            await conn.commit()

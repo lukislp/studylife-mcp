@@ -247,6 +247,15 @@ flagged in its tool's description as user-authored data, not instructions.
   attempt, so the store stays bounded regardless of registration volume. See
   [docs/decisions.md](docs/decisions.md) for what this does and doesn't
   protect against.
+- **Connected-apps self-service, internal-only**: `/connected-apps` lets a
+  StudyLife user see which OAuth clients hold a live refresh token for their
+  account and revoke one — gated the same way `/login` is (a real StudyLife
+  key, not the already-issued token). Deliberately unreachable from the
+  public Tailscale Funnel URL: its `Ingress` uses an explicit path allowlist
+  rather than a `defaultBackend`, so `/connected-apps` 404s at the ingress
+  controller before ever reaching the pod, reachable only via the
+  tailnet/LAN-only `studylife-mcp.home.lan` route. See
+  [docs/decisions.md](docs/decisions.md).
 
 ## Development
 

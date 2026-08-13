@@ -1,6 +1,7 @@
 import html
 import secrets
 import time
+from datetime import UTC, datetime
 
 import httpx
 from mcp.server.auth.provider import (
@@ -18,7 +19,7 @@ from starlette.responses import HTMLResponse, RedirectResponse, Response
 
 from studylife_mcp.client import StudyLifeClient
 from studylife_mcp.config import Settings
-from studylife_mcp.oauth_store import OAuthStore
+from studylife_mcp.oauth_store import ConnectedClient, OAuthStore
 
 # Single scope: no per-tool/read-vs-write scoping exists yet (every tool is available
 # to any authenticated caller, same as stdio mode) - revisit if that ever needs to
@@ -214,12 +215,38 @@ _PAGE_STYLE = """
     border: 1px solid rgba(225,112,85,0.3); border-radius: 8px; padding: 0.6rem 0.8rem;
     margin-bottom: 1.25rem;
   }
+  .btn-danger {
+    background: transparent; color: #E17055; border: 1px solid rgba(225,112,85,0.3);
+    border-radius: 8px; padding: 0.4rem 0.85rem; font-size: 0.8rem; font-family: var(--font);
+    cursor: pointer; transition: var(--transition); flex-shrink: 0;
+  }
+  .btn-danger:hover { background: rgba(225,112,85,0.1); }
+  .app-row {
+    display: flex; align-items: center; justify-content: space-between; gap: 0.75rem;
+    padding: 0.85rem 0; border-top: 1px solid var(--border);
+  }
+  .app-row:first-of-type { border-top: none; }
+  .app-name { font-size: 0.9rem; font-weight: 500; }
+  .app-expires { font-size: 0.75rem; color: var(--text3); margin-top: 2px; }
 """
 
 _BRAND_HTML = (
     '<div class="brand"><span class="brand-icon">&#10022;</span>'
     '<span class="brand-name">StudyLife</span></div>'
 )
+
+
+async def _validate_studylife_key(settings: Settings, api_key: str) -> bool:
+    """Shared by /login and /connected-apps - both prove the caller owns a StudyLife
+    account the same way: the key has to actually work against the real instance."""
+    candidate = StudyLifeClient(settings.model_copy(update={"studylife_api_key": api_key}))
+    try:
+        await candidate.list_courses()
+    except httpx.HTTPError:
+        return False
+    finally:
+        await candidate.aclose()
+    return True
 
 
 def _render_login_page(request_id: str, *, error: str | None = None) -> str:
@@ -271,6 +298,79 @@ from your MCP client.</p>
 """
 
 
+def _format_expiry(expires_at: float | None) -> str:
+    if expires_at is None:
+        return "No expiry set"
+    return f"Active until {datetime.fromtimestamp(expires_at, tz=UTC):%Y-%m-%d}"
+
+
+def _render_connected_apps_login_page(*, error: str | None = None) -> str:
+    error_html = f'<p class="error">{html.escape(error)}</p>' if error else ""
+    return f"""<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Connected Apps &mdash; StudyLife</title>
+<style>{_PAGE_STYLE}</style>
+</head>
+<body>
+<div class="card">
+{_BRAND_HTML}
+<h1>Connected apps</h1>
+<p>Enter your StudyLife MCP API key to see which apps currently have access
+to your StudyLife account, and revoke any you no longer recognize.</p>
+{error_html}
+<form method="post" action="/connected-apps">
+  <label for="api_key">API key</label>
+  <input class="input" type="password" id="api_key" name="api_key" autocomplete="off" required>
+  <button class="btn-primary" type="submit">View connected apps</button>
+</form>
+</div>
+</body>
+</html>
+"""
+
+
+def _render_connected_apps_list_page(session_id: str, clients: list[ConnectedClient]) -> str:
+    if clients:
+        body = "\n".join(
+            f"""<div class="app-row">
+  <div>
+    <div class="app-name">{html.escape(c.client_name)}</div>
+    <div class="app-expires">{_format_expiry(c.expires_at)}</div>
+  </div>
+  <form method="post" action="/connected-apps/revoke">
+    <input type="hidden" name="session_id" value="{html.escape(session_id)}">
+    <input type="hidden" name="client_id" value="{html.escape(c.client_id)}">
+    <button class="btn-danger" type="submit">Revoke</button>
+  </form>
+</div>"""
+            for c in clients
+        )
+    else:
+        body = '<p class="hint">No apps currently have access to your StudyLife account.</p>'
+    return f"""<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Connected Apps &mdash; StudyLife</title>
+<style>{_PAGE_STYLE}</style>
+</head>
+<body>
+<div class="card">
+{_BRAND_HTML}
+<h1>Connected apps</h1>
+<p>Apps with current access to your StudyLife account. Revoking one signs it
+out immediately - it has to go through login again to reconnect.</p>
+{body}
+</div>
+</body>
+</html>
+"""
+
+
 def register_oauth_routes(mcp: MCPServer, store: OAuthStore, settings: Settings) -> None:
     """Registers the two custom routes the `authorize()` redirect and its form
     submission need. Kept separate from the OAuthAuthorizationServerProvider
@@ -303,10 +403,7 @@ def register_oauth_routes(mcp: MCPServer, store: OAuthStore, settings: Settings)
                 status_code=400,
             )
 
-        candidate = StudyLifeClient(settings.model_copy(update={"studylife_api_key": api_key}))
-        try:
-            await candidate.list_courses()
-        except httpx.HTTPError:
+        if not await _validate_studylife_key(settings, api_key):
             return HTMLResponse(
                 _render_login_page(
                     request_id,
@@ -315,8 +412,6 @@ def register_oauth_routes(mcp: MCPServer, store: OAuthStore, settings: Settings)
                 ),
                 status_code=401,
             )
-        finally:
-            await candidate.aclose()
 
         subject = store.subject_for_key(api_key)
         await store.save_user_key(subject, api_key)
@@ -340,3 +435,55 @@ def register_oauth_routes(mcp: MCPServer, store: OAuthStore, settings: Settings)
             str(params.redirect_uri), code=code.code, state=params.state
         )
         return RedirectResponse(redirect_url, status_code=302)
+
+    # Self-service "which apps have access to my StudyLife account, revoke one" page.
+    # Deliberately NOT reachable via the public Tailscale Funnel route (see
+    # k8s/07-tailscale-funnel.yaml's path allowlist, which omits /connected-apps) - only
+    # from the tailnet/LAN-only studylife-mcp.home.lan route. Re-proves ownership the same
+    # way /login does (a real StudyLife key), rather than trusting anything from the
+    # already-revealed access token, since the whole point of this page is to let someone
+    # audit/undo access even if a token were compromised.
+    @mcp.custom_route("/connected-apps", methods=["GET"])  # type: ignore[untyped-decorator]
+    async def connected_apps_view(request: Request) -> Response:
+        session_id = request.query_params.get("session_id", "")
+        subject = await store.load_management_session(session_id) if session_id else None
+        if subject is None:
+            return HTMLResponse(_render_connected_apps_login_page())
+        clients = await store.list_connected_clients(subject)
+        return HTMLResponse(_render_connected_apps_list_page(session_id, clients))
+
+    @mcp.custom_route("/connected-apps", methods=["POST"])  # type: ignore[untyped-decorator]
+    async def connected_apps_login(request: Request) -> Response:
+        form = await request.form()
+        api_key = str(form.get("api_key", "")).strip()
+
+        if not api_key:
+            return HTMLResponse(
+                _render_connected_apps_login_page(error="Please enter your StudyLife MCP API key."),
+                status_code=400,
+            )
+        if not await _validate_studylife_key(settings, api_key):
+            return HTMLResponse(
+                _render_connected_apps_login_page(
+                    error="StudyLife rejected this key (or couldn't be reached). "
+                    "Check it and try again."
+                ),
+                status_code=401,
+            )
+
+        subject = store.subject_for_key(api_key)
+        session_id = await store.create_management_session(subject)
+        return RedirectResponse(f"/connected-apps?session_id={session_id}", status_code=303)
+
+    @mcp.custom_route("/connected-apps/revoke", methods=["POST"])  # type: ignore[untyped-decorator]
+    async def connected_apps_revoke(request: Request) -> Response:
+        form = await request.form()
+        session_id = str(form.get("session_id", ""))
+        client_id = str(form.get("client_id", ""))
+
+        subject = await store.load_management_session(session_id) if session_id else None
+        if subject is None:
+            return HTMLResponse(_render_connected_apps_login_page(), status_code=400)
+
+        await store.revoke_client_access(subject, client_id)
+        return RedirectResponse(f"/connected-apps?session_id={session_id}", status_code=303)

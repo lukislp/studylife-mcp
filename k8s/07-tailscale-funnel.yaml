@@ -19,6 +19,18 @@
 # this one) - k8s/05-network-policies.yaml's allow-tailscale-to-studylife-mcp rule is what
 # actually lets its traffic reach the pod.
 #
+# Explicit path allowlist, NOT a defaultBackend: only the routes a remote MCP client
+# actually needs (the protocol endpoint, the OAuth dance, discovery metadata) are reachable
+# from the public internet. /connected-apps (the self-service "revoke a client's access"
+# page, oauth_provider.py) is deliberately absent - it stays reachable only via
+# k8s/06-httproute.yaml's studylife-mcp.home.lan route (tailnet/LAN only), since it lets a
+# caller view/manage which clients hold live access to a StudyLife account and shouldn't be
+# reachable by anyone who merely finds this public URL. Same principle as the ACL tag
+# scoping above: enforced structurally (the ingress controller 404s an unlisted path before
+# it ever reaches the pod - the operator's own path matching is prefix-only even for an
+# "Exact" pathType, see docs.tailscale.com/kubernetes-operator/reference/limitations), not
+# left to remembering not to link it anywhere.
+#
 # Bootstrap-only, NOT Flux-managed - same RBAC reasoning as k8s/06-httproute.yaml
 # (kustomize-controller's ClusterRole has no permission on the networking.k8s.io Ingress
 # resource at all).
@@ -32,11 +44,30 @@ metadata:
     tailscale.com/tags: "tag:studylife-mcp-funnel"
 spec:
   ingressClassName: tailscale
-  defaultBackend:
-    service:
-      name: studylife-mcp
-      port:
-        number: 8000
+  rules:
+    - http:
+        paths:
+          - path: /mcp
+            pathType: Prefix
+            backend: {service: {name: studylife-mcp, port: {number: 8000}}}
+          - path: /register
+            pathType: Prefix
+            backend: {service: {name: studylife-mcp, port: {number: 8000}}}
+          - path: /authorize
+            pathType: Prefix
+            backend: {service: {name: studylife-mcp, port: {number: 8000}}}
+          - path: /token
+            pathType: Prefix
+            backend: {service: {name: studylife-mcp, port: {number: 8000}}}
+          - path: /revoke
+            pathType: Prefix
+            backend: {service: {name: studylife-mcp, port: {number: 8000}}}
+          - path: /login
+            pathType: Prefix
+            backend: {service: {name: studylife-mcp, port: {number: 8000}}}
+          - path: /.well-known
+            pathType: Prefix
+            backend: {service: {name: studylife-mcp, port: {number: 8000}}}
   tls:
     - hosts:
         - studylife-mcp
