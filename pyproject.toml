@@ -14,10 +14,22 @@ dependencies = [
     # only certifi's bundle - needed to trust locally-registered dev certs, e.g. the
     # ASP.NET Core HTTPS dev cert (`dotnet dev-certs https --trust`).
     "truststore>=0.9",
+    # Async SQLite for the S4 OAuth store (oauth_store.py) - the HTTP+OAuth server may
+    # serve multiple users concurrently, unlike the single-user stdio path, so a blocking
+    # sqlite3 call per request is worth avoiding. Same choice studylife-ai made for its
+    # own per-user key store.
+    "aiosqlite>=0.20",
+    # Already a transitive dep of mcp (used internally for its own JOSE/JWT handling);
+    # declared explicitly because oauth_store.py uses it directly (Fernet) to encrypt
+    # each user's StudyLife API key at rest - unlike StudyLife's own key storage, this
+    # server needs the plaintext back to call StudyLife on the user's behalf, so it can't
+    # just hash it.
+    "cryptography>=42",
 ]
 
 [project.scripts]
 studylife-mcp = "studylife_mcp.server:main"
+studylife-mcp-http = "studylife_mcp.server:main_http"
 
 [tool.uv]
 dev-dependencies = [

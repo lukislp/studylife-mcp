@@ -15,6 +15,9 @@ venv/
 .env.*
 !.env.example
 
+# S4: OAuth store (client registrations, tokens, encrypted per-user StudyLife keys)
+oauth.db*
+
 # Tooling caches
 .mypy_cache/
 .ruff_cache/

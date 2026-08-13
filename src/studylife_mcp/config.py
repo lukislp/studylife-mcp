@@ -1,4 +1,4 @@
-from pydantic import HttpUrl
+from pydantic import AnyHttpUrl, HttpUrl
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -9,3 +9,29 @@ class Settings(BaseSettings):
 
     studylife_base_url: HttpUrl
     studylife_api_key: str
+
+    # --- S4: Streamable HTTP transport + OAuth 2.1 authorization server ---
+    # All optional, with no bearing on stdio mode (main()) - only main_http() requires
+    # mcp_public_url and mcp_token_encryption_key to be set, checked explicitly there
+    # rather than making them required for every stdio user who never touches HTTP mode.
+
+    # Externally reachable base URL of this server behind the user's own reverse proxy
+    # (TLS terminates there) - used as both the OAuth issuer_url and resource_server_url,
+    # since this server is both AS and RS. E.g. "https://studylife-mcp.example.com".
+    # Typed AnyHttpUrl (not HttpUrl) to match mcp.server.auth.settings.AuthSettings'
+    # own field types directly, without a conversion at the call site.
+    mcp_public_url: AnyHttpUrl | None = None
+
+    # Fernet key (32 url-safe base64-encoded bytes, e.g. via
+    # `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`)
+    # encrypting each user's StudyLife API key at rest in the OAuth store - unlike
+    # StudyLife's own hash-only key storage, this server needs the plaintext back to call
+    # StudyLife on the user's behalf, so hashing alone isn't an option here.
+    mcp_token_encryption_key: str | None = None
+
+    # SQLite file for OAuth clients/codes/tokens/per-user StudyLife keys (oauth_store.py).
+    # Relative to the working directory the server is started from; gitignored like .env.
+    mcp_oauth_db_path: str = "oauth.db"
+
+    mcp_http_host: str = "127.0.0.1"
+    mcp_http_port: int = 8000
