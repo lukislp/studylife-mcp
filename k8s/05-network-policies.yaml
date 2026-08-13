@@ -45,6 +45,25 @@ spec:
         - namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: nginx-gateway } }
       ports:
         - { protocol: TCP, port: 8000 }
+---
+# Lets the Tailscale operator's ingress proxy (k8s/07-tailscale-funnel.yaml, a single-replica
+# StatefulSet the operator creates in its own "tailscale" namespace, not this one) reach the
+# pod. This is the ONLY path that can make this service reachable from outside the tailnet -
+# see k8s/07-tailscale-funnel.yaml's own comment for how public exposure is scoped to just
+# this one Ingress's proxy via a dedicated Tailscale tag.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-tailscale-to-studylife-mcp
+  namespace: studylife-mcp
+spec:
+  podSelector: { matchLabels: { app: studylife-mcp } }
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: tailscale } }
+      ports:
+        - { protocol: TCP, port: 8000 }
 
 # NOTE: this namespace has no default-deny EGRESS (only ingress, see default-deny-ingress
 # above) - egress to StudyLife is open by default from THIS side. But studylife-scale (where

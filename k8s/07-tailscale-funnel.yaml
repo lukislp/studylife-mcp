@@ -1,0 +1,42 @@
+# Public exposure via Tailscale Funnel (see docs/decisions.md's "Public exposure: Tailscale
+# Funnel" entry) - separate from k8s/06-httproute.yaml, which only ever serves
+# studylife-mcp.home.lan inside the tailnet/LAN. This Ingress is the ONE thing in the whole
+# cluster allowed to become reachable from the public internet, and that's enforced by the
+# tailnet ACL policy itself, not just by convention:
+#
+#   - The Tailscale Kubernetes operator's default proxy tag (tag:k8s) does NOT have the
+#     "funnel" node capability - only the dedicated tag:studylife-mcp-funnel does (see the
+#     tagOwners/nodeAttrs blocks in the tailnet policy, login.tailscale.com/admin/acls/file).
+#   - tailscale.com/tags below overrides this Ingress's proxy away from the (funnel-incapable)
+#     default tag to that dedicated one - the ONLY proxy in the cluster tagged that way.
+#   - Any other Ingress created later (for a different service) would still default to
+#     tag:k8s, which the ACL doesn't grant funnel to - adding tailscale.com/funnel: "true" to
+#     it alone would NOT be enough to make it public; someone would have to also deliberately
+#     override its tag to tag:studylife-mcp-funnel (or grant a new tag its own funnel policy),
+#     which is a conscious second step, not an accident.
+#
+# The operator's proxy StatefulSet for this Ingress runs in the "tailscale" namespace (not
+# this one) - k8s/05-network-policies.yaml's allow-tailscale-to-studylife-mcp rule is what
+# actually lets its traffic reach the pod.
+#
+# Bootstrap-only, NOT Flux-managed - same RBAC reasoning as k8s/06-httproute.yaml
+# (kustomize-controller's ClusterRole has no permission on the networking.k8s.io Ingress
+# resource at all).
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: studylife-mcp-funnel
+  namespace: studylife-mcp
+  annotations:
+    tailscale.com/funnel: "true"
+    tailscale.com/tags: "tag:studylife-mcp-funnel"
+spec:
+  ingressClassName: tailscale
+  defaultBackend:
+    service:
+      name: studylife-mcp
+      port:
+        number: 8000
+  tls:
+    - hosts:
+        - studylife-mcp
