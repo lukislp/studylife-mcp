@@ -1,3 +1,10 @@
+# [1.2.0](https://github.com/lukislp/studylife-mcp/compare/v1.1.1...v1.2.0) (2026-08-13)
+
+
+### Features
+
+* **k8s:** expose studylife-mcp publicly via Tailscale Funnel ([1f3c2d0](https://github.com/lukislp/studylife-mcp/commit/1f3c2d0d25e336cab1ac8c9c56ae4a332abf0567))
+
 ## [1.1.1](https://github.com/lukislp/studylife-mcp/compare/v1.1.0...v1.1.1) (2026-08-13)
 
 
