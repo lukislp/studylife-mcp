@@ -64,6 +64,25 @@ spec:
         - namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: tailscale } }
       ports:
         - { protocol: TCP, port: 8000 }
+---
+# Lets the existing self-hosted Prometheus (studylife repo's k8s/14-prometheus.yaml) scrape
+# /metrics - it reaches pods directly (kubernetes_sd_configs, role: pod), not through the
+# Gateway/Tailscale ingress paths, so this is the only allowance /metrics needs. Same
+# podSelector-scoped pattern as studylife-ai's own k8s/05-network-policies.yaml.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-monitoring-to-studylife-mcp
+  namespace: studylife-mcp
+spec:
+  podSelector: { matchLabels: { app: studylife-mcp } }
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: monitoring } }
+          podSelector: { matchLabels: { app: prometheus } }
+      ports:
+        - { protocol: TCP, port: 8000 }
 
 # NOTE: this namespace has no default-deny EGRESS (only ingress, see default-deny-ingress
 # above) - egress to StudyLife is open by default from THIS side. But studylife-scale (where

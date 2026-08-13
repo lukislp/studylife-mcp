@@ -13,6 +13,7 @@ from starlette.responses import PlainTextResponse, Response
 from studylife_mcp.audit import audited
 from studylife_mcp.client_resolver import StudyLifeClientResolver
 from studylife_mcp.config import Settings
+from studylife_mcp.metrics import render_latest
 from studylife_mcp.models import Course, CourseGoal, Note, Session
 from studylife_mcp.oauth_provider import SCOPE, StudyLifeOAuthProvider, register_oauth_routes
 from studylife_mcp.oauth_store import OAuthStore
@@ -64,6 +65,17 @@ _resolver = StudyLifeClientResolver(_settings, _oauth_store)
 @mcp.custom_route("/health", methods=["GET"])  # type: ignore[untyped-decorator]
 async def health(request: Request) -> Response:
     return PlainTextResponse("ok")
+
+
+# Prometheus scrape target (studylife repo's k8s/14-prometheus.yaml) - the existing
+# self-hosted Prometheus reaches this directly pod-to-pod inside the cluster
+# (kubernetes_sd_configs, not through any Ingress/Gateway), so unlike /connected-apps this
+# never needs excluding from k8s/07-tailscale-funnel.yaml's path allowlist - it's simply
+# never reachable from either public path in the first place.
+@mcp.custom_route("/metrics", methods=["GET"])  # type: ignore[untyped-decorator]
+async def metrics(request: Request) -> Response:
+    body, content_type = render_latest()
+    return Response(body, media_type=content_type)
 
 
 @mcp.tool()

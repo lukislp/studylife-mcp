@@ -25,6 +25,13 @@ dependencies = [
     # server needs the plaintext back to call StudyLife on the user's behalf, so it can't
     # just hash it.
     "cryptography>=42",
+    # Metrics for the HTTP transport's /metrics endpoint (scraped by the existing
+    # self-hosted Prometheus, studylife repo's k8s/14-prometheus.yaml, same setup
+    # studylife-ai already uses). Plain prometheus-client rather than
+    # prometheus-fastapi-instrumentator (studylife-ai's choice) - this server isn't
+    # FastAPI, and the metrics that matter here (tool calls, rate-limit rejections) are
+    # hand-registered anyway, not auto-instrumented HTTP request/response metrics.
+    "prometheus-client>=0.20",
 ]
 
 [project.scripts]

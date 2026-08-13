@@ -6,6 +6,8 @@ from starlette.requests import Request
 from starlette.responses import PlainTextResponse
 from starlette.types import ASGIApp, Receive, Scope, Send
 
+from studylife_mcp.metrics import RATE_LIMIT_REJECTIONS_TOTAL
+
 # RFC 7591 dynamic client registration is intentionally unauthenticated (any MCP
 # client self-registers without prior credentials) - once this server is publicly
 # reachable, that endpoint is the one an anonymous scanner/bot can hit repeatedly
@@ -65,6 +67,7 @@ class RateLimitMiddleware:
             hits.popleft()
 
         if len(hits) >= self._max_requests:
+            RATE_LIMIT_REJECTIONS_TOTAL.labels(path=self._path).inc()
             response = PlainTextResponse(self._rejection_message, status_code=429)
             await response(scope, receive, send)
             return

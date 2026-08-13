@@ -64,6 +64,31 @@ async def test_request_over_limit_is_rejected() -> None:
         assert response.status_code == 429
 
 
+async def test_rejection_increments_metric() -> None:
+    from prometheus_client.parser import text_string_to_metric_families
+
+    from studylife_mcp.metrics import render_latest
+
+    def rejections_for_register() -> float:
+        body, _content_type = render_latest()
+        for family in text_string_to_metric_families(body.decode()):
+            for sample in family.samples:
+                if sample.name == "studylife_mcp_rate_limit_rejections_total" and (
+                    sample.labels == {"path": "/register"}
+                ):
+                    return sample.value
+        return 0
+
+    app = _make_app(max_requests=1, window_seconds=3600)
+    before = rejections_for_register()
+    async with await _client(app) as client:
+        await client.post("/register")
+        await client.post("/register")
+    after = rejections_for_register()
+
+    assert after == before + 1
+
+
 async def test_different_ips_have_independent_limits() -> None:
     app = _make_app(max_requests=1, window_seconds=3600)
     async with await _client(app) as client:

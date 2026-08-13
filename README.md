@@ -262,6 +262,19 @@ flagged in its tool's description as user-authored data, not instructions.
   tailnet/LAN-only `studylife-mcp.heim.lan` route. See
   [docs/decisions.md](docs/decisions.md).
 
+## Observability
+
+`GET /metrics` (HTTP mode only) exposes Prometheus metrics: tool-call counts
+and duration by tool and outcome (`studylife_mcp_tool_calls_total`,
+`studylife_mcp_tool_call_duration_seconds`), and rate-limit rejections by
+path (`studylife_mcp_rate_limit_rejections_total`) — the same underlying
+measurements as the structured audit log, just also exported for scraping.
+Reached only by the author's own in-cluster Prometheus (pod-to-pod, not
+through any Ingress/Gateway/Funnel path — see [k8s/](k8s/) and
+[docs/decisions.md](docs/decisions.md)); running this yourself, point your
+own Prometheus at the same port. No distributed tracing — deliberately
+deferred, see [docs/decisions.md](docs/decisions.md).
+
 ## Development
 
 ```bash
@@ -279,6 +292,8 @@ uv run pytest
 - [x] **S4** — Streamable HTTP transport, self-built OAuth 2.1 authorization server (multi-user), non-root Docker image, verified [MCP Inspector](docs/mcp-inspector.md) run.
 - [x] Production deployment to a real K3s cluster via Flux CD GitOps (see [k8s/](k8s/)), semantic-release + Docker-publish CI pipeline.
 - [x] Public exposure via Tailscale Funnel, scoped to exactly this one service at the ACL level, plus rate-limiting/TTL-cleanup hardening for the previously-open dynamic client registration endpoint.
+- [x] Connected-apps self-service page (internal-only), per-token rate limiting on `/mcp`, Prometheus metrics + Grafana dashboard on the author's own cluster.
+- [ ] Distributed tracing — deliberately deferred (logs + metrics cover current needs), see [docs/decisions.md](docs/decisions.md).
 - [ ] Submit/list this repo in public MCP directories — deliberately deferred, see [docs/decisions.md](docs/decisions.md).
 
 ## Tech stack
@@ -290,6 +305,7 @@ uv run pytest
 | Config | `pydantic-settings` + `.env` |
 | OAuth store | `aiosqlite`, StudyLife keys encrypted at rest with `cryptography.fernet` |
 | Tests | `pytest` + `respx` (HTTP mocking) + an ASGI test client for the OAuth login route |
+| Metrics | `prometheus-client`, scraped by the author's own self-hosted Prometheus |
 | CI/CD | GitHub Actions (`ruff`, `mypy --strict`, `pytest`, semantic-release, multi-arch Docker publish to GHCR, Trivy scan) |
 | Deployment | Docker (non-root) · Kubernetes (K3s) via Flux CD GitOps, see [k8s/](k8s/) · public exposure via Tailscale Funnel |
 
