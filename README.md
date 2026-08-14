@@ -243,8 +243,10 @@ flagged in its tool's description as user-authored data, not instructions.
   credentials), which is a free, repeatable target for bots once this server
   is publicly reachable. `RegistrationRateLimitMiddleware` caps it to 5
   registrations/hour per source IP; any client that registers but never
-  completes the OAuth flow within 24h is purged on the next registration
-  attempt, so the store stays bounded regardless of registration volume. See
+  completes the OAuth flow within 24h is purged - both opportunistically on
+  the next registration attempt and by an hourly background sweep, so the
+  store stays bounded regardless of registration volume and expired entries
+  don't linger on the dashboard during quiet periods. See
   [docs/decisions.md](docs/decisions.md) for what this does and doesn't
   protect against.
 - **Rate-limited tool calls**: `POST /mcp` is already authenticated (a valid

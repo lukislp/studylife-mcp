@@ -1,6 +1,7 @@
 import time
 from pathlib import Path
 
+import anyio
 import pytest
 from cryptography.fernet import Fernet
 from mcp.server.auth.provider import AccessToken, AuthorizationCode, RefreshToken
@@ -128,6 +129,72 @@ async def test_activated_client_survives_ttl_cleanup(store: OAuthStore) -> None:
         oauth_store_module.UNUSED_CLIENT_TTL_SECONDS = original_ttl
 
     assert await store.get_client("activated-client") is not None
+
+
+async def test_cleanup_expired_clients_deletes_stale_and_returns_count(
+    store: OAuthStore,
+) -> None:
+    import studylife_mcp.oauth_store as oauth_store_module
+
+    await store.register_client(
+        OAuthClientInformationFull(
+            client_id="will-expire",
+            redirect_uris=[AnyUrl("https://client.example/callback")],
+        )
+    )
+
+    original_ttl = oauth_store_module.UNUSED_CLIENT_TTL_SECONDS
+    oauth_store_module.UNUSED_CLIENT_TTL_SECONDS = -1
+    try:
+        deleted = await store.cleanup_expired_clients()
+    finally:
+        oauth_store_module.UNUSED_CLIENT_TTL_SECONDS = original_ttl
+
+    assert deleted == 1
+    assert await store.get_client("will-expire") is None
+
+
+async def test_cleanup_expired_clients_returns_zero_when_nothing_expired(
+    store: OAuthStore,
+) -> None:
+    await store.register_client(
+        OAuthClientInformationFull(
+            client_id="fresh-client",
+            redirect_uris=[AnyUrl("https://client.example/callback")],
+        )
+    )
+
+    assert await store.cleanup_expired_clients() == 0
+
+
+async def test_run_periodic_cleanup_sweeps_without_a_new_registration(
+    store: OAuthStore,
+) -> None:
+    """The actual point of the periodic sweep (vs. the pre-existing opportunistic-only
+    cleanup in register_client()): an expired client gets removed even though nothing
+    ever registers again to trigger that path - found live as a stale dashboard count
+    that only self-corrected on the next unrelated registration, see docs/decisions.md."""
+    import studylife_mcp.oauth_store as oauth_store_module
+
+    await store.register_client(
+        OAuthClientInformationFull(
+            client_id="stale-client",
+            redirect_uris=[AnyUrl("https://client.example/callback")],
+        )
+    )
+
+    original_ttl = oauth_store_module.UNUSED_CLIENT_TTL_SECONDS
+    original_interval = oauth_store_module.CLEANUP_INTERVAL_SECONDS
+    oauth_store_module.UNUSED_CLIENT_TTL_SECONDS = -1
+    oauth_store_module.CLEANUP_INTERVAL_SECONDS = 0
+    try:
+        with anyio.move_on_after(1):
+            await store.run_periodic_cleanup()
+    finally:
+        oauth_store_module.UNUSED_CLIENT_TTL_SECONDS = original_ttl
+        oauth_store_module.CLEANUP_INTERVAL_SECONDS = original_interval
+
+    assert await store.get_client("stale-client") is None
 
 
 async def test_pending_authorization_round_trip_and_delete(store: OAuthStore) -> None:

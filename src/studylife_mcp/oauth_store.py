@@ -1,4 +1,5 @@
 import hashlib
+import logging
 import secrets
 import time
 from collections.abc import AsyncIterator
@@ -6,9 +7,12 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass
 
 import aiosqlite
+import anyio
 from cryptography.fernet import Fernet
 from mcp.server.auth.provider import AccessToken, AuthorizationCode, RefreshToken
 from mcp.shared.auth import OAuthClientInformationFull
+
+logger = logging.getLogger("studylife_mcp.oauth_store")
 
 
 @dataclass(frozen=True)
@@ -71,10 +75,20 @@ PENDING_AUTH_TTL_SECONDS = 600
 
 # RFC 7591 dynamic client registration is unauthenticated by design (any MCP client
 # self-registers). A client that never completes the OAuth flow (no access token ever
-# issued) within this window is considered abandoned/abuse and gets purged the next
-# time someone registers - see register_client() below. Real clients activate within
-# seconds of registering, so a day is generous headroom, not a tight deadline.
+# issued) within this window is considered abandoned/abuse and gets purged - both
+# opportunistically on the next registration (register_client() below) and periodically
+# (run_periodic_cleanup() below). Real clients activate within seconds of registering, so
+# a day is generous headroom, not a tight deadline.
 UNUSED_CLIENT_TTL_SECONDS = 60 * 60 * 24
+
+# How often run_periodic_cleanup() sweeps expired unactivated clients. Found live
+# (2026-08-14) that the opportunistic-only cleanup left 6 stale "pending" entries sitting
+# on the Grafana dashboard for over a day, past their TTL, simply because nobody had
+# registered a new client to trigger the sweep - correct on the next registration, but a
+# misleading dashboard signal in the meantime for a low-traffic personal server. An hour
+# is frequent enough that expired entries don't linger for most of the TTL window itself,
+# without adding a real background-job scheduler for something this simple.
+CLEANUP_INTERVAL_SECONDS = 60 * 60
 
 # How long a "prove you own this StudyLife key" verification on /connected-apps stays
 # usable for follow-up actions (viewing the list again, revoking an entry) before the
@@ -151,11 +165,41 @@ class OAuthStore:
             row = await cursor.fetchone()
         return OAuthClientInformationFull.model_validate_json(row[0]) if row else None
 
+    async def cleanup_expired_clients(self) -> int:
+        """Deletes never-activated client registrations older than
+        UNUSED_CLIENT_TTL_SECONDS. Returns the number of rows deleted. Called both
+        opportunistically (register_client() below, on every new registration) and
+        periodically (run_periodic_cleanup() below, on a fixed interval regardless of
+        whether anyone registers) - same query either way."""
+        async with self._connection() as conn:
+            cursor = await conn.execute(
+                "DELETE FROM clients WHERE activated_at IS NULL AND created_at < ?",
+                (time.time() - UNUSED_CLIENT_TTL_SECONDS,),
+            )
+            await conn.commit()
+            return cursor.rowcount
+
+    async def run_periodic_cleanup(self) -> None:
+        """Background loop (started alongside the HTTP server in server.py's
+        main_http()): sweeps expired unactivated clients on CLEANUP_INTERVAL_SECONDS,
+        independent of whether any new client registers. Without this, an idle period
+        longer than UNUSED_CLIENT_TTL_SECONDS leaves expired entries sitting on the
+        studylife_mcp_registered_clients dashboard gauge indefinitely - correct on the
+        next registration either way, but misleading until then. Runs forever; the
+        caller cancels it on shutdown."""
+        while True:
+            await anyio.sleep(CLEANUP_INTERVAL_SECONDS)
+            deleted = await self.cleanup_expired_clients()
+            if deleted:
+                logger.info("periodic_cleanup deleted_clients=%s", deleted)
+
     async def register_client(self, client_info: OAuthClientInformationFull) -> None:
         async with self._connection() as conn:
-            # Opportunistic cleanup: bounds table growth from registration spam without
-            # a separate background task - runs exactly when new registrations happen,
-            # i.e. exactly when growth would otherwise be unbounded.
+            # Opportunistic cleanup: bounds table growth from registration spam even
+            # between periodic sweeps - runs exactly when new registrations happen, i.e.
+            # exactly when growth would otherwise be unbounded. Inlined (not a call to
+            # cleanup_expired_clients()) so it shares this same connection/transaction as
+            # the INSERT below instead of opening a second one.
             await conn.execute(
                 "DELETE FROM clients WHERE activated_at IS NULL AND created_at < ?",
                 (time.time() - UNUSED_CLIENT_TTL_SECONDS,),

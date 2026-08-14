@@ -193,7 +193,8 @@ def main_http() -> None:
             "HTTP transport requires MCP_PUBLIC_URL and MCP_TOKEN_ENCRYPTION_KEY to be "
             "set (see README) - stdio-only settings aren't enough to run main_http()."
         )
-    anyio.run(_oauth_store.initialize)
+    oauth_store = _oauth_store  # narrows Optional -> OAuthStore for the closure below
+    anyio.run(oauth_store.initialize)
 
     # Built by hand (mirroring what mcp.run(transport="streamable-http", ...) does
     # internally) instead of calling mcp.run() directly, purely so the rate limits
@@ -208,7 +209,18 @@ def main_http() -> None:
     server = uvicorn.Server(
         uvicorn.Config(app, host=_settings.mcp_http_host, port=_settings.mcp_http_port)
     )
-    anyio.run(server.serve)
+
+    async def _serve() -> None:
+        # Runs the periodic OAuth-client-cleanup sweep (oauth_store.py) alongside the
+        # HTTP server instead of as a separate process/cron - simplest option at this
+        # traffic scale, and keeps the whole HTTP transport's lifecycle (start/stop
+        # together) in one place. Cancelled once server.serve() returns (on shutdown).
+        async with anyio.create_task_group() as tg:
+            tg.start_soon(oauth_store.run_periodic_cleanup)
+            await server.serve()
+            tg.cancel_scope.cancel()
+
+    anyio.run(_serve)
 
 
 if __name__ == "__main__":
