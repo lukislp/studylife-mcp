@@ -1,3 +1,10 @@
+## [1.7.1](https://github.com/lukislp/studylife-mcp/compare/v1.7.0...v1.7.1) (2026-08-14)
+
+
+### Bug Fixes
+
+* **oauth:** add periodic cleanup for expired client registrations ([444b3fc](https://github.com/lukislp/studylife-mcp/commit/444b3fcc9ebb7bcf44243bdd49d717e937d1cafe))
+
 # [1.7.0](https://github.com/lukislp/studylife-mcp/compare/v1.6.0...v1.7.0) (2026-08-13)
 
 
