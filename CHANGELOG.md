@@ -1,3 +1,10 @@
+# [1.8.0](https://github.com/lukislp/studylife-mcp/compare/v1.7.1...v1.8.0) (2026-08-16)
+
+
+### Features
+
+* sync Note model and create_note with StudyLife's Markdown flag ([0c78141](https://github.com/lukislp/studylife-mcp/commit/0c7814159663cf4555b2ce8b1d097786372e220b))
+
 ## [1.7.1](https://github.com/lukislp/studylife-mcp/compare/v1.7.0...v1.7.1) (2026-08-14)
 
 
