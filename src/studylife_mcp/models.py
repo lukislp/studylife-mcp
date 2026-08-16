@@ -36,6 +36,7 @@ class Note(StudyLifeModel):
     created_at: datetime
     updated_at: datetime
     session_id: int | None = None
+    is_markdown: bool = False
 
 
 class Session(StudyLifeModel):

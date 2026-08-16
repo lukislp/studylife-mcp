@@ -76,6 +76,7 @@ class StudyLifeClient:
         content: str,
         course_id: int | None = None,
         session_id: int | None = None,
+        is_markdown: bool = False,
     ) -> Note:
         # CreatedAt/UpdatedAt/Id are set server-side and ignored from the request
         # body (NotesController.Create) - not sent here.
@@ -84,6 +85,7 @@ class StudyLifeClient:
             "content": content,
             "courseId": course_id,
             "sessionId": session_id,
+            "isMarkdown": is_markdown,
         }
         response = await self._request("POST", "/api/notes", json=payload)
         return Note.model_validate(response.json())

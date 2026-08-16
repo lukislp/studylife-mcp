@@ -38,6 +38,7 @@ NOTE_PAYLOAD = [
         "updatedAt": "2026-08-02T11:30:00",
         "courseId": 1,
         "sessionId": None,
+        "isMarkdown": False,
     }
 ]
 
@@ -277,6 +278,23 @@ async def test_create_note_happy_path(settings: Settings) -> None:
     sent_body = route.calls.last.request.content
     assert b'"title":"New note"' in sent_body
     assert b'"courseId":1' in sent_body
+    assert b'"isMarkdown":false' in sent_body
+    await client.aclose()
+
+
+@respx.mock
+async def test_create_note_markdown(settings: Settings) -> None:
+    created = {**NOTE_PAYLOAD[0], "id": 3, "title": "Formatted note", "isMarkdown": True}
+    route = respx.post("https://studylife.example.test/api/notes").mock(
+        return_value=httpx.Response(200, json=created)
+    )
+    client = StudyLifeClient(settings)
+
+    note = await client.create_note("Formatted note", "# Heading", is_markdown=True)
+
+    assert note.is_markdown is True
+    sent_body = route.calls.last.request.content
+    assert b'"isMarkdown":true' in sent_body
     await client.aclose()
 
 
