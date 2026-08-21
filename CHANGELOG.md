@@ -1,3 +1,10 @@
+# [1.9.0](https://github.com/lukislp/studylife-mcp/compare/v1.8.0...v1.9.0) (2026-08-21)
+
+
+### Features
+
+* add source_url to Note model ([7299337](https://github.com/lukislp/studylife-mcp/commit/7299337f4fdcfca3b020bdc50e9fc28bc271a525))
+
 # [1.8.0](https://github.com/lukislp/studylife-mcp/compare/v1.7.1...v1.8.0) (2026-08-16)
 
 
