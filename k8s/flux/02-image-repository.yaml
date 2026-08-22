@@ -1,0 +1,9 @@
+# Scans GHCR for new tags of this repo's image. Public package - no secretRef needed.
+apiVersion: image.toolkit.fluxcd.io/v1
+kind: ImageRepository
+metadata:
+  name: studylife-mcp
+  namespace: flux-system
+spec:
+  image: ghcr.io/lukislp/studylife-mcp
+  interval: 5m
