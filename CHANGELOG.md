@@ -1,3 +1,10 @@
+# [1.10.0](https://github.com/lukislp/studylife-mcp/compare/v1.9.0...v1.10.0) (2026-08-22)
+
+
+### Features
+
+* own this repo's Flux GitOps wiring ([77463c7](https://github.com/lukislp/studylife-mcp/commit/77463c7c189397c891589f181994f90eca8eda26))
+
 # [1.9.0](https://github.com/lukislp/studylife-mcp/compare/v1.8.0...v1.9.0) (2026-08-21)
 
 
