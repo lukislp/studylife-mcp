@@ -1,3 +1,10 @@
+## [1.10.3](https://github.com/lukislp/studylife-mcp/compare/v1.10.2...v1.10.3) (2026-08-24)
+
+
+### Bug Fixes
+
+* **k8s:** opt the data volume into the nightly Velero backup ([e884be7](https://github.com/lukislp/studylife-mcp/commit/e884be7ac5b8df1b1657138f7e2e2cad108bc347))
+
 ## [1.10.2](https://github.com/lukislp/studylife-mcp/compare/v1.10.1...v1.10.2) (2026-08-24)
 
 
