@@ -1,0 +1,17 @@
+# tailscale namespace: same default-deny ingress strategy as studylife-mcp's own namespace
+# (k8s/05-network-policies.yaml). Nothing in this namespace needs to accept traffic from the
+# cluster: the operator only makes outbound calls (Kubernetes API, tailscale control plane),
+# and the Funnel proxy receives its public traffic through tailscaled's own outbound DERP
+# connections, then forwards INTO studylife-mcp (allowed there by
+# allow-tailscale-to-studylife-mcp) - no inbound cluster hop exists in that path. The
+# operator's /metrics :8080 is not scraped by Prometheus today; if that changes, add an
+# allow rule following homelab-infra/cluster/06-network-policies-cert-manager.yaml's pattern.
+# Egress deliberately stays open, same trade-off as everywhere else in the cluster.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+  namespace: tailscale
+spec:
+  podSelector: {}
+  policyTypes: ["Ingress"]

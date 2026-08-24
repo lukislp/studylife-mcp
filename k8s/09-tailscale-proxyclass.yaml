@@ -1,0 +1,27 @@
+# Hardening defaults for every proxy StatefulSet the tailscale operator creates - today
+# that's exactly one: studylife-mcp's Funnel proxy (k8s/07-tailscale-funnel.yaml). Wired up
+# via proxyConfig.defaultProxyClass in k8s/08-tailscale-operator-values.yaml.
+#
+# The proxy runs tailscaled in userspace mode (verified live: the default pod has NO
+# capabilities at all, so kernel networking was never in play) - dropping everything and
+# forbidding escalation costs it nothing. runAsNonRoot is deliberately NOT set: the
+# container entrypoint expects root, and the operator offers no supported non-root mode for
+# it in v1.102 - that run-as-root finding is accepted, documented here.
+#
+# Bootstrap-only, applied by hand with the rest of k8s/ (the CRD comes with the operator's
+# helm chart, so this cannot be applied before the release exists).
+apiVersion: tailscale.com/v1alpha1
+kind: ProxyClass
+metadata:
+  name: hardened
+spec:
+  statefulSet:
+    pod:
+      tailscaleContainer:
+        resources:
+          requests: { cpu: 10m, memory: 32Mi }
+          limits: { cpu: 200m, memory: 128Mi }
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities: { drop: ["ALL"] }
+          seccompProfile: { type: RuntimeDefault }
