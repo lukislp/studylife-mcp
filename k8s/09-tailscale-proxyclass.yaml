@@ -6,7 +6,9 @@
 # capabilities at all, so kernel networking was never in play) - dropping everything and
 # forbidding escalation costs it nothing. runAsNonRoot is deliberately NOT set: the
 # container entrypoint expects root, and the operator offers no supported non-root mode for
-# it in v1.102 - that run-as-root finding is accepted, documented here.
+# it in v1.102 - that run-as-root finding is accepted, and the statefulSet.annotations
+# below make that acceptance (plus the no-probes one) machine-readable for
+# homelab-autodoc's findings engine, reason included.
 #
 # Bootstrap-only, applied by hand with the rest of k8s/ (the CRD comes with the operator's
 # helm chart, so this cannot be applied before the release exists).
@@ -16,6 +18,13 @@ metadata:
   name: hardened
 spec:
   statefulSet:
+    annotations:
+      autodoc.homelab/accept-run-as-root-allowed: >-
+        container entrypoint expects root; the tailscale operator offers no
+        supported non-root proxy mode in v1.102
+      autodoc.homelab/accept-missing-probes: >-
+        operator-managed proxy exposes no health endpoint and ProxyClass has
+        no probe fields; the operator replaces broken proxy pods itself
     pod:
       tailscaleContainer:
         resources:
