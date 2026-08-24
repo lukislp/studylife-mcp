@@ -29,6 +29,11 @@ spec:
   template:
     metadata:
       labels: {app: studylife-mcp}
+      annotations:
+        # Opt-in to homelab-infra's nightly Velero PVC backup (cluster/10-velero-values.yaml
+        # there): /app/data holds oauth.db - the OAuth client registrations and tokens of
+        # every connected MCP client. Losing it means re-authorizing each client by hand.
+        backup.velero.io/backup-volumes: data
     spec:
       automountServiceAccountToken: false
       securityContext:
