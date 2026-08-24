@@ -1,3 +1,10 @@
+## [1.10.2](https://github.com/lukislp/studylife-mcp/compare/v1.10.1...v1.10.2) (2026-08-24)
+
+
+### Bug Fixes
+
+* **k8s:** acknowledge the funnel proxy's accepted autodoc findings ([a2dd5f3](https://github.com/lukislp/studylife-mcp/commit/a2dd5f38ea8d3b02dbc0248ae4dc2638f0bc4cd2))
+
 ## [1.10.1](https://github.com/lukislp/studylife-mcp/compare/v1.10.0...v1.10.1) (2026-08-24)
 
 
