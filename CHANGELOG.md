@@ -1,3 +1,10 @@
+## [1.10.1](https://github.com/lukislp/studylife-mcp/compare/v1.10.0...v1.10.1) (2026-08-24)
+
+
+### Bug Fixes
+
+* **k8s:** harden the tailscale operator and Funnel proxy ([d3867ef](https://github.com/lukislp/studylife-mcp/commit/d3867ef0c41e6113db839a7d34f748a7abe66650))
+
 # [1.10.0](https://github.com/lukislp/studylife-mcp/compare/v1.9.0...v1.10.0) (2026-08-22)
 
 
