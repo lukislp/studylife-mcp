@@ -1,0 +1,49 @@
+# Helm values for the tailscale-operator release (namespace "tailscale") - the operator that
+# runs studylife-mcp's Funnel proxy (k8s/07-tailscale-funnel.yaml), which is why its config
+# lives in this repo. The release itself is bootstrap-only (helm, not Flux).
+#
+# Apply/upgrade (oauth client id/secret stay in the release, --reuse-values keeps them):
+#
+#   helm upgrade tailscale-operator tailscale/tailscale-operator \
+#     -n tailscale --version 1.102.2 --reuse-values -f k8s/08-tailscale-operator-values.yaml
+#
+# The chart has no probe values; the operator's only HTTP endpoint is /metrics on :8080
+# (verified live - no /healthz or /readyz in v1.102), so probes are patched on afterwards as a
+# process-responsiveness check and must be RE-APPLIED after every helm upgrade, same pattern
+# as cert-manager's patches (homelab-infra/cluster/00d-cert-manager-hardening.md):
+#
+#   kubectl -n tailscale patch deployment operator --type=strategic -p '{
+#     "spec": {"template": {"spec": {"containers": [{
+#       "name": "operator",
+#       "livenessProbe": {"httpGet": {"path": "/metrics", "port": 8080},
+#                         "initialDelaySeconds": 10, "periodSeconds": 15, "timeoutSeconds": 10,
+#                         "failureThreshold": 8},
+#       "readinessProbe": {"httpGet": {"path": "/metrics", "port": 8080},
+#                          "initialDelaySeconds": 5, "periodSeconds": 10, "timeoutSeconds": 10}
+#     }]}}}}'
+
+operatorConfig:
+  resources:
+    requests: { cpu: 10m, memory: 64Mi }
+    limits: { cpu: 200m, memory: 256Mi }
+  # The operator is a plain controller: Kubernetes API plus a tsnet (userspace) tailnet
+  # session, state lives in Secrets - nothing needs root. 65532 is the conventional
+  # "nonroot" UID.
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 65532
+    allowPrivilegeEscalation: false
+    capabilities: { drop: ["ALL"] }
+    seccompProfile: { type: RuntimeDefault }
+  # tsnet needs a writable confdir under $HOME for its runtime files (the tailnet identity
+  # itself lives in the OPERATOR_SECRET Kubernetes Secret, so /tmp being ephemeral is fine).
+  # Without this the non-root operator crashes on startup: "mkdir /.config: permission
+  # denied" - hit live on first rollout.
+  extraEnv:
+    - name: HOME
+      value: /tmp
+
+proxyConfig:
+  # Applies k8s/09-tailscale-proxyclass.yaml to every proxy the operator creates,
+  # including the studylife-mcp Funnel proxy.
+  defaultProxyClass: hardened
