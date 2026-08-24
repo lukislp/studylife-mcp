@@ -1,3 +1,10 @@
+## [1.10.4](https://github.com/lukislp/studylife-mcp/compare/v1.10.3...v1.10.4) (2026-08-24)
+
+
+### Performance Improvements
+
+* **ci:** native per-arch docker builds instead of QEMU emulation ([1f8f127](https://github.com/lukislp/studylife-mcp/commit/1f8f1271a29f184247530eccc7fe6f622d0c5119))
+
 ## [1.10.3](https://github.com/lukislp/studylife-mcp/compare/v1.10.2...v1.10.3) (2026-08-24)
 
 
