@@ -1,3 +1,10 @@
+# [1.11.0](https://github.com/lukislp/studylife-mcp/compare/v1.10.4...v1.11.0) (2026-08-25)
+
+
+### Features
+
+* move data volume to Longhorn for cross-node replication ([7791eaf](https://github.com/lukislp/studylife-mcp/commit/7791eaf6b6a772d15a94d86f24d65c9474835eca))
+
 ## [1.10.4](https://github.com/lukislp/studylife-mcp/compare/v1.10.3...v1.10.4) (2026-08-24)
 
 
