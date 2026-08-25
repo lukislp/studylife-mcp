@@ -10,6 +10,10 @@ metadata:
   namespace: studylife-mcp
 spec:
   accessModes: ["ReadWriteOnce"]
+  # Longhorn (cross-node-replicated, homelab-infra/cluster/11-longhorn-values.yaml) instead
+  # of the cluster default local-path - oauth.db (every connected MCP client's OAuth
+  # registrations/tokens) survives a node dying instead of needing a Velero restore.
+  storageClassName: longhorn
   resources:
     requests: {storage: 256Mi}
 ---
