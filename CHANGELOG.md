@@ -1,3 +1,10 @@
+## [1.12.2](https://github.com/lukislp/studylife-mcp/compare/v1.12.1...v1.12.2) (2026-08-26)
+
+
+### Bug Fixes
+
+* steer tools to catalog course ids now that the server validates them ([ee7e209](https://github.com/lukislp/studylife-mcp/commit/ee7e2098ef78e1ba1644ad2bae18880fb021dae2))
+
 ## [1.12.1](https://github.com/lukislp/studylife-mcp/compare/v1.12.0...v1.12.1) (2026-08-26)
 
 
