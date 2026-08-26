@@ -27,7 +27,9 @@ async def store(tmp_path: Path) -> OAuthStore:
 
 @pytest.fixture
 async def app_client(store: OAuthStore, settings: Settings):
-    provider = StudyLifeOAuthProvider(store, "https://mcp.example.test")
+    provider = StudyLifeOAuthProvider(
+        store, "https://mcp.example.test", "https://connect.studylife.example.test"
+    )
     mcp = MCPServer(
         "studylife-mcp-test",
         auth_server_provider=provider,
@@ -47,8 +49,8 @@ async def app_client(store: OAuthStore, settings: Settings):
 
 
 async def _connect_client(store: OAuthStore, *, client_id: str, client_name: str) -> str:
-    """Directly seeds a registered+authorized client for API_KEY's subject - the login
-    flow itself is covered by test_oauth_login_route.py, this file is about
+    """Directly seeds a registered+authorized client for API_KEY's subject - the connect
+    flow itself is covered by test_oauth_studylife_callback_route.py, this file is about
     /connected-apps behavior once a connection already exists."""
     subject = store.subject_for_key(API_KEY)
     await store.save_user_key(subject, API_KEY)
