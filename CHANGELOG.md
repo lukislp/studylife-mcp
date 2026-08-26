@@ -1,3 +1,10 @@
+## [1.12.1](https://github.com/lukislp/studylife-mcp/compare/v1.12.0...v1.12.1) (2026-08-26)
+
+
+### Bug Fixes
+
+* oauth store hygiene - purge, cookie sessions, CSRF, hashed rate buckets ([c5517dd](https://github.com/lukislp/studylife-mcp/commit/c5517dd6d0ee4501b03e6a6a801feb2297465ad7))
+
 # [1.12.0](https://github.com/lukislp/studylife-mcp/compare/v1.11.0...v1.12.0) (2026-08-26)
 
 
