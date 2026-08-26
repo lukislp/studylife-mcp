@@ -1,3 +1,10 @@
+# [1.12.0](https://github.com/lukislp/studylife-mcp/compare/v1.11.0...v1.12.0) (2026-08-26)
+
+
+### Features
+
+* derive identity from StudyLife instead of the API key hash ([13aa61e](https://github.com/lukislp/studylife-mcp/commit/13aa61e49ddecf47474dc78577d737d75ed94150))
+
 # [1.11.0](https://github.com/lukislp/studylife-mcp/compare/v1.10.4...v1.11.0) (2026-08-25)
 
 
