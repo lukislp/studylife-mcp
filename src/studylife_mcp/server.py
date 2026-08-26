@@ -25,23 +25,29 @@ logging.basicConfig(
     level=logging.INFO, stream=sys.stderr, format="%(asctime)s %(name)s %(message)s"
 )
 
-# studylife_base_url/studylife_api_key have no default on purpose (fail loudly
-# if unset) - pydantic-settings fills them from the environment/.env at
-# runtime, which mypy's synthesized __init__ can't see. Sanctioned pattern,
-# see pydantic-settings docs on type checking.
+# studylife_base_url has no default on purpose (fail loudly if unset) -
+# pydantic-settings fills it from the environment/.env at runtime, which mypy's
+# synthesized __init__ can't see. Sanctioned pattern, see pydantic-settings docs on
+# type checking. studylife_api_key is genuinely optional at this layer (see config.py);
+# main() enforces it below for stdio mode specifically.
 _settings = Settings()  # type: ignore[call-arg]
 
-# S4: Streamable HTTP transport + OAuth 2.1, only wired in when both settings below are
-# configured - a stdio-only .env (S1-S3) never touches any of this. See
+# S4: Streamable HTTP transport + OAuth 2.1, only wired in when all three settings below
+# are configured - a stdio-only .env (S1-S3) never touches any of this. See
 # oauth_provider.py/oauth_store.py/client_resolver.py and docs/decisions.md for the design.
 _oauth_store: OAuthStore | None = None
 
-if _settings.mcp_public_url is not None and _settings.mcp_token_encryption_key is not None:
+if (
+    _settings.mcp_public_url is not None
+    and _settings.mcp_token_encryption_key is not None
+    and _settings.studylife_connect_url is not None
+):
     _oauth_store = OAuthStore(_settings.mcp_oauth_db_path, _settings.mcp_token_encryption_key)
     _public_url = str(_settings.mcp_public_url)
+    _connect_url = str(_settings.studylife_connect_url)
     mcp = MCPServer(
         "studylife-mcp",
-        auth_server_provider=StudyLifeOAuthProvider(_oauth_store, _public_url),
+        auth_server_provider=StudyLifeOAuthProvider(_oauth_store, _public_url, _connect_url),
         auth=AuthSettings(
             issuer_url=_settings.mcp_public_url,
             resource_server_url=_settings.mcp_public_url,
@@ -190,17 +196,23 @@ async def create_session(
 
 
 def main() -> None:
-    """stdio transport (Claude Desktop and other local MCP clients)."""
+    """stdio transport (Claude Desktop and other local MCP clients) - the single
+    .env-configured StudyLife account, unlike HTTP mode which resolves each caller's
+    own account via OAuth (client_resolver.py) and doesn't need this key set."""
+    if _settings.studylife_api_key is None:
+        raise RuntimeError("stdio transport requires STUDYLIFE_API_KEY to be set (see README).")
     mcp.run()
 
 
 def main_http() -> None:
-    """Streamable HTTP transport with OAuth 2.1 (S4) - requires MCP_PUBLIC_URL and
-    MCP_TOKEN_ENCRYPTION_KEY in .env; see README's HTTP setup section."""
+    """Streamable HTTP transport with OAuth 2.1 (S4) - requires MCP_PUBLIC_URL,
+    MCP_TOKEN_ENCRYPTION_KEY, and STUDYLIFE_CONNECT_URL in .env; see README's HTTP
+    setup section."""
     if _oauth_store is None:
         raise RuntimeError(
-            "HTTP transport requires MCP_PUBLIC_URL and MCP_TOKEN_ENCRYPTION_KEY to be "
-            "set (see README) - stdio-only settings aren't enough to run main_http()."
+            "HTTP transport requires MCP_PUBLIC_URL, MCP_TOKEN_ENCRYPTION_KEY, and "
+            "STUDYLIFE_CONNECT_URL to be set (see README) - stdio-only settings aren't "
+            "enough to run main_http()."
         )
     oauth_store = _oauth_store  # narrows Optional -> OAuthStore for the closure below
     anyio.run(oauth_store.initialize)

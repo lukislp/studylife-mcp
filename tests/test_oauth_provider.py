@@ -1,5 +1,6 @@
 import time
 from pathlib import Path
+from urllib.parse import parse_qs, urlparse
 
 import pytest
 from cryptography.fernet import Fernet
@@ -30,10 +31,12 @@ async def store(tmp_path: Path) -> OAuthStore:
 
 @pytest.fixture
 def provider(store: OAuthStore) -> StudyLifeOAuthProvider:
-    return StudyLifeOAuthProvider(store, "https://mcp.example.com/")
+    return StudyLifeOAuthProvider(
+        store, "https://mcp.example.com/", "https://connect.studylife.example.com/"
+    )
 
 
-async def test_authorize_saves_pending_and_returns_own_login_url(
+async def test_authorize_saves_pending_and_redirects_to_studylife_connect(
     provider: StudyLifeOAuthProvider, store: OAuthStore
 ) -> None:
     params = AuthorizationParams(
@@ -46,8 +49,10 @@ async def test_authorize_saves_pending_and_returns_own_login_url(
 
     url = await provider.authorize(CLIENT, params)
 
-    assert url.startswith("https://mcp.example.com/login?request_id=")
-    request_id = url.split("request_id=")[1]
+    assert url.startswith("https://connect.studylife.example.com/connect/mcp?")
+    query = parse_qs(urlparse(url).query)
+    assert query["redirect_uri"] == ["https://mcp.example.com/auth/studylife/callback"]
+    request_id = query["state"][0]
     pending = await store.load_pending_authorization(request_id)
     assert pending is not None
     assert pending[0] == "client-1"

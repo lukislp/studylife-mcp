@@ -2,6 +2,7 @@ import html
 import secrets
 import time
 from datetime import UTC, datetime
+from urllib.parse import urlencode
 
 import httpx
 from mcp.server.auth.provider import (
@@ -17,7 +18,7 @@ from mcp.shared.auth import OAuthClientInformationFull, OAuthToken
 from starlette.requests import Request
 from starlette.responses import HTMLResponse, RedirectResponse, Response
 
-from studylife_mcp.client import StudyLifeClient
+from studylife_mcp.client import StudyLifeClient, exchange_mcp_assertion
 from studylife_mcp.config import Settings
 from studylife_mcp.oauth_store import ConnectedClient, OAuthStore
 
@@ -36,25 +37,28 @@ class StudyLifeOAuthProvider(
 ):
     """OAuth 2.1 authorization server for studylife-mcp's HTTP transport.
 
-    The resource-owner login step (`authorize()` below) doesn't ask for a generic
-    username/password - it asks for the caller's own StudyLife MCP API key (the one
-    generated on StudyLife's setup page, same key stdio mode reads from `.env`).
-    Every token this server issues is bound to whichever StudyLife account that key
-    belongs to (see `oauth_store.OAuthStore.subject_for_key`), so one deployment of
-    this server can serve multiple StudyLife users concurrently without ever mixing
-    their data - each access token resolves back to exactly one person's StudyLife
-    key at tool-call time (see `server.py`'s `resolve_studylife_client`).
+    The resource-owner login step (`authorize()` below) redirects the browser to
+    StudyLife's own `/connect/mcp` page (identity-contract-v1 section 2) - StudyLife
+    handles the passkey login and consent, then hands back a single-use assertion this
+    server exchanges server-to-server for the real StudyLife user id and a freshly
+    rotated MCP API key. The subject every issued token is bound to is that user id
+    (`str(userId)`), not a hash of the key - see the `/auth/studylife/callback` route in
+    `register_oauth_routes` below, where the exchange and the subject binding happen.
+    Older grants made before this change have subject = sha256(key)
+    (`OAuthStore.subject_for_key`, still used by `/connected-apps`'s own key-based
+    re-auth) and keep resolving untouched; only new logins get a userId subject.
 
-    `authorize()` only returns a redirect URL, per the protocol - the actual login
-    page is a separate pair of custom routes, see `register_oauth_routes` below.
-    That split is deliberate: swapping this for a federated login (e.g. redirecting
-    to Authentik/Keycloak instead) later only touches `authorize()` and the routes
-    it points to, not the rest of this class.
+    `authorize()` only returns a redirect URL, per the protocol - the actual
+    login/consent UI lives entirely on StudyLife's side now, reached via the routes in
+    `register_oauth_routes` below.
     """
 
-    def __init__(self, store: OAuthStore, public_url: str) -> None:
+    def __init__(self, store: OAuthStore, public_url: str, connect_url: str) -> None:
         self._store = store
         self._public_url = public_url.rstrip("/")
+        # StudyLife's own public base URL - authorize() sends the browser to
+        # {connect_url}/connect/mcp (identity-contract-v1 section 2 step 1).
+        self._connect_url = connect_url.rstrip("/")
 
     async def get_client(self, client_id: str) -> OAuthClientInformationFull | None:
         return await self._store.get_client(client_id)
@@ -65,11 +69,17 @@ class StudyLifeOAuthProvider(
     async def authorize(
         self, client: OAuthClientInformationFull, params: AuthorizationParams
     ) -> str:
+        # request_id doubles as the "state" StudyLife echoes back on
+        # /auth/studylife/callback - same round-trip mechanics the old /login form used
+        # (a pending_auth row keyed by an opaque id), just carried via a query param
+        # through StudyLife instead of a form post to this server.
         request_id = secrets.token_urlsafe(24)
         await self._store.save_pending_authorization(
             request_id, client.client_id, params.model_dump_json()
         )
-        return f"{self._public_url}/login?request_id={request_id}"
+        callback_url = f"{self._public_url}/auth/studylife/callback"
+        query = urlencode({"redirect_uri": callback_url, "state": request_id})
+        return f"{self._connect_url}/connect/mcp?{query}"
 
     async def load_authorization_code(
         self, client: OAuthClientInformationFull, authorization_code: str
@@ -237,8 +247,11 @@ _BRAND_HTML = (
 
 
 async def _validate_studylife_key(settings: Settings, api_key: str) -> bool:
-    """Shared by /login and /connected-apps - both prove the caller owns a StudyLife
-    account the same way: the key has to actually work against the real instance."""
+    """Used by /connected-apps: proves the caller owns a StudyLife account by checking
+    the key actually works against the real instance. The main connect flow no longer
+    needs this - StudyLife itself verifies the session before issuing an assertion -
+    but /connected-apps still re-proves ownership with a raw key (see its routes
+    below), so this stays."""
     candidate = StudyLifeClient(settings.model_copy(update={"studylife_api_key": api_key}))
     try:
         await candidate.list_courses()
@@ -247,35 +260,6 @@ async def _validate_studylife_key(settings: Settings, api_key: str) -> bool:
     finally:
         await candidate.aclose()
     return True
-
-
-def _render_login_page(request_id: str, *, error: str | None = None) -> str:
-    error_html = f'<p class="error">{html.escape(error)}</p>' if error else ""
-    return f"""<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Connect to StudyLife</title>
-<style>{_PAGE_STYLE}</style>
-</head>
-<body>
-<div class="card">
-{_BRAND_HTML}
-<h1>Connect to StudyLife</h1>
-<p>Enter your StudyLife MCP API key to let this client access your StudyLife data.</p>
-<p class="hint">Get one from StudyLife's Setup page &rarr; "StudyLife MCP Server" card.</p>
-{error_html}
-<form method="post" action="/login">
-  <input type="hidden" name="request_id" value="{html.escape(request_id)}">
-  <label for="api_key">API key</label>
-  <input class="input" type="password" id="api_key" name="api_key" autocomplete="off" required>
-  <button class="btn-primary" type="submit">Connect</button>
-</form>
-</div>
-</body>
-</html>
-"""
 
 
 _EXPIRED_LINK_HTML = f"""<!doctype html>
@@ -290,8 +274,26 @@ _EXPIRED_LINK_HTML = f"""<!doctype html>
 <div class="card">
 {_BRAND_HTML}
 <h1>Link expired</h1>
-<p>This login link is invalid or has expired. Please restart the connection
+<p>This connection link is invalid or has expired. Please restart the connection
 from your MCP client.</p>
+</div>
+</body>
+</html>
+"""
+
+_CONNECT_FAILED_HTML = f"""<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Connection failed &mdash; StudyLife</title>
+<style>{_PAGE_STYLE}</style>
+</head>
+<body>
+<div class="card">
+{_BRAND_HTML}
+<h1>Connection failed</h1>
+<p>StudyLife could not confirm this connection. Please restart it from your MCP client.</p>
 </div>
 </body>
 </html>
@@ -372,49 +374,41 @@ out immediately - it has to go through login again to reconnect.</p>
 
 
 def register_oauth_routes(mcp: MCPServer, store: OAuthStore, settings: Settings) -> None:
-    """Registers the two custom routes the `authorize()` redirect and its form
-    submission need. Kept separate from the OAuthAuthorizationServerProvider
-    Protocol methods above - this is the specific piece that would change if
-    login is ever federated to an external IdP instead."""
+    """Registers the custom route the `authorize()` redirect's round trip needs, plus
+    the self-service connected-apps pages. Kept separate from the
+    OAuthAuthorizationServerProvider Protocol methods above - this is the specific piece
+    that would change again if login were ever federated to a different IdP."""
 
     # Unlike @mcp.tool(), the SDK's custom_route() has no return-type annotation,
     # so mypy can't see through it - narrow, sanctioned suppression.
-    @mcp.custom_route("/login", methods=["GET"])  # type: ignore[untyped-decorator]
-    async def login_form(request: Request) -> Response:
-        request_id = request.query_params.get("request_id", "")
-        if await store.load_pending_authorization(request_id) is None:
-            return HTMLResponse(_EXPIRED_LINK_HTML, status_code=400)
-        return HTMLResponse(_render_login_page(request_id))
 
-    @mcp.custom_route("/login", methods=["POST"])  # type: ignore[untyped-decorator]
-    async def login_submit(request: Request) -> Response:
-        form = await request.form()
-        request_id = str(form.get("request_id", ""))
-        api_key = str(form.get("api_key", "")).strip()
+    # Completes the connect flow authorize() started (identity-contract-v1 section 2 step
+    # 5): StudyLife's /connect/mcp redirects the browser back here once the user has
+    # logged in and consented, carrying a single-use assertion and the state (our own
+    # pending-authorization request_id) round-tripped through it unchanged.
+    @mcp.custom_route("/auth/studylife/callback", methods=["GET"])  # type: ignore[untyped-decorator]
+    async def studylife_callback(request: Request) -> Response:
+        state = request.query_params.get("state", "")
+        assertion = request.query_params.get("assertion", "")
 
-        pending = await store.load_pending_authorization(request_id)
+        pending = await store.load_pending_authorization(state)
         if pending is None:
             return HTMLResponse(_EXPIRED_LINK_HTML, status_code=400)
         client_id, params_json = pending
 
-        if not api_key:
-            return HTMLResponse(
-                _render_login_page(request_id, error="Please enter your StudyLife MCP API key."),
-                status_code=400,
-            )
+        if not assertion:
+            return HTMLResponse(_CONNECT_FAILED_HTML, status_code=400)
 
-        if not await _validate_studylife_key(settings, api_key):
-            return HTMLResponse(
-                _render_login_page(
-                    request_id,
-                    error="StudyLife rejected this key (or couldn't be reached). "
-                    "Check it and try again.",
-                ),
-                status_code=401,
-            )
+        exchanged = await exchange_mcp_assertion(settings, assertion)
+        if exchanged is None:
+            return HTMLResponse(_CONNECT_FAILED_HTML, status_code=401)
+        user_id, mcp_api_key = exchanged
 
-        subject = store.subject_for_key(api_key)
-        await store.save_user_key(subject, api_key)
+        # The real StudyLife AuthUserId, not a hash of the key (audit A1) - upsert so a
+        # re-connect (e.g. after StudyLife rotated the key) replaces the stored key
+        # rather than creating a second identity for the same person.
+        subject = str(user_id)
+        await store.save_user_key(subject, mcp_api_key)
 
         params = AuthorizationParams.model_validate_json(params_json)
         code = AuthorizationCode(
@@ -429,7 +423,7 @@ def register_oauth_routes(mcp: MCPServer, store: OAuthStore, settings: Settings)
             subject=subject,
         )
         await store.save_authorization_code(code)
-        await store.delete_pending_authorization(request_id)
+        await store.delete_pending_authorization(state)
 
         redirect_url = construct_redirect_uri(
             str(params.redirect_uri), code=code.code, state=params.state
@@ -439,10 +433,11 @@ def register_oauth_routes(mcp: MCPServer, store: OAuthStore, settings: Settings)
     # Self-service "which apps have access to my StudyLife account, revoke one" page.
     # Deliberately NOT reachable via the public Tailscale Funnel route (see
     # k8s/07-tailscale-funnel.yaml's path allowlist, which omits /connected-apps) - only
-    # from the tailnet/LAN-only studylife-mcp.heim.lan route. Re-proves ownership the same
-    # way /login does (a real StudyLife key), rather than trusting anything from the
-    # already-revealed access token, since the whole point of this page is to let someone
-    # audit/undo access even if a token were compromised.
+    # from the tailnet/LAN-only studylife-mcp.heim.lan route. Re-proves ownership with a
+    # real StudyLife key (still validated the old way, see _validate_studylife_key)
+    # rather than trusting anything from the already-revealed access token, since the
+    # whole point of this page is to let someone audit/undo access even if a token were
+    # compromised.
     @mcp.custom_route("/connected-apps", methods=["GET"])  # type: ignore[untyped-decorator]
     async def connected_apps_view(request: Request) -> Response:
         session_id = request.query_params.get("session_id", "")

@@ -8,4 +8,5 @@ def settings() -> Settings:
     return Settings(
         studylife_base_url="https://studylife.example.test/",
         studylife_api_key="test-key",
+        studylife_connect_url="https://connect.studylife.example.test/",
     )

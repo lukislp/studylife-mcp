@@ -12,7 +12,7 @@ to Claude and other MCP clients. It provides:
 - **Read tools** — courses, notes (incl. full-text search), study sessions/calendar, and per-course learning goals.
 - **Write tools** — create a note, create a study session. Nothing else: no update/delete tools exist, not even unimplemented.
 - **Two transports** — stdio (Claude Desktop, single StudyLife account) and Streamable HTTP (remote, multi-user, behind your own reverse proxy).
-- **A self-built OAuth 2.1 authorization server** for the HTTP transport — dynamic client registration, PKCE, and per-user login via StudyLife's own MCP API key, so multiple StudyLife users can share one deployment without ever seeing each other's data.
+- **A self-built OAuth 2.1 authorization server** for the HTTP transport — dynamic client registration, PKCE, and a StudyLife-hosted connect flow (passkey login + consent, no API key to copy/paste) for identity, so multiple StudyLife users can share one deployment without ever seeing each other's data.
 - **A structured audit log** (tool, argument digest, outcome, duration) for every tool call, on both transports.
 
 This is a learning project and portfolio piece; design decisions and trade-offs
@@ -68,21 +68,23 @@ flowchart LR
         StdioT["stdio transport"]
         HttpT["Streamable HTTP transport"]
         AS["OAuth 2.1 authorization server\n(oauth_provider.py)"]
-        Login["Login page\n(StudyLife MCP API key)"]
+        Callback["/auth/studylife/callback\n(assertion exchange)"]
         OAuthDB[("SQLite\nclients / tokens /\nencrypted per-user keys")]
         Resolver["StudyLifeClientResolver\n(.env account, or per-user\nvia OAuth subject)"]
         Tools["7 tools\nlist_*, search_notes,\ncreate_note, create_session"]
         Audit["Audit log\n(stderr: tool, args digest,\noutcome, duration)"]
     end
 
-    StudyLifeAPI["StudyLife REST API\n(X-Api-Key)"]
+    StudyLifeConnect["StudyLife /connect/mcp\n(login + consent, public)"]
+    StudyLifeAPI["StudyLife REST API\n(X-Api-Key / assertion exchange)"]
 
     Desktop -- stdio --> StdioT
     Remote -- HTTPS --> Proxy
     Proxy --> HttpT
-    HttpT -. "first connect: redirect" .-> Login
-    Login -- validates key against --> StudyLifeAPI
-    Login --> AS
+    HttpT -. "first connect: redirect" .-> StudyLifeConnect
+    StudyLifeConnect -- "browser redirect: assertion" --> Callback
+    Callback -- "server-to-server exchange" --> StudyLifeAPI
+    Callback --> AS
     AS --> OAuthDB
     StdioT --> Tools
     HttpT -- Bearer token --> Tools
@@ -95,15 +97,18 @@ flowchart LR
 
 stdio mode always uses the single `.env`-configured StudyLife account.
 HTTP+OAuth mode resolves each authenticated caller to *their own* StudyLife
-account: `authorize()` redirects the user's browser to this server's own login
-page (not a generic username/password — the StudyLife MCP API key from
-StudyLife's setup page), which validates the key live against StudyLife, then
-binds every access/refresh token issued from that login to that account.
-`StudyLifeClientResolver` looks up the right account per tool call from the
-caller's access token — see [docs/decisions.md](docs/decisions.md) "Multi-user"
-for the full reasoning, including why the login step is deliberately the one
-piece that would change if login is ever federated to an external IdP
-(Authentik/Keycloak) later.
+account: `authorize()` redirects the user's browser to StudyLife's own
+`/connect/mcp` page — StudyLife handles the passkey login and consent, then
+redirects back to this server's `/auth/studylife/callback` with a single-use
+assertion. This server exchanges that assertion server-to-server for the
+caller's real StudyLife user id and a freshly rotated MCP API key, and binds
+every access/refresh token issued from that login to that user id (not a hash
+of the key — see [docs/decisions.md](docs/decisions.md) "Identity Contract v1"
+for why that mattered). `StudyLifeClientResolver` looks up the right account per tool
+call from the caller's access token, and fails closed (raises rather than
+falling back to the `.env` account) whenever HTTP mode is configured but a
+request isn't properly authenticated — see [docs/decisions.md](docs/decisions.md)
+"Multi-user" for the full reasoning.
 
 ## Setup: Claude Desktop (stdio, single StudyLife account)
 
@@ -145,12 +150,13 @@ Connector" URL field. Unlike stdio mode, multiple StudyLife users can share one
 running server: each person logs in with their own StudyLife MCP API key, and
 every access token is bound to that one account.
 
-1. In `.env`, in addition to `STUDYLIFE_BASE_URL`/`STUDYLIFE_API_KEY` (still
-   needed as the stdio-mode/fallback account), set:
+1. In `.env`, in addition to `STUDYLIFE_BASE_URL` (`STUDYLIFE_API_KEY` is
+   optional in HTTP mode, see [Configuration](#configuration)), set:
 
    ```bash
-   MCP_PUBLIC_URL=https://studylife-mcp.example.com   # externally reachable, behind your reverse proxy
-   MCP_TOKEN_ENCRYPTION_KEY=...                        # python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+   MCP_PUBLIC_URL=https://studylife-mcp.example.com          # externally reachable, behind your reverse proxy
+   MCP_TOKEN_ENCRYPTION_KEY=...                               # python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+   STUDYLIFE_CONNECT_URL=https://studylife.example.com        # StudyLife's own public base URL
    ```
 
    `MCP_OAUTH_DB_PATH` (default `oauth.db`), `MCP_HTTP_HOST` (default
@@ -172,9 +178,11 @@ every access token is bound to that one account.
 
 3. Add `https://studylife-mcp.example.com` as a remote MCP connector in your
    client. The client registers itself automatically (dynamic client
-   registration, RFC 7591); on first connect you'll be sent to this server's
-   own login page — enter your StudyLife MCP API key there once. Subsequent
-   connections reuse the refresh token, no re-login needed.
+   registration, RFC 7591); on first connect you'll be redirected to
+   StudyLife itself to log in (passkey) and approve the connection — no API
+   key to copy/paste. StudyLife hands back a single-use assertion this server
+   exchanges server-to-server for your real account and a freshly rotated MCP
+   API key. Subsequent connections reuse the refresh token, no re-login needed.
 
 Discovery endpoints (for debugging, or a client that doesn't auto-discover):
 `GET /.well-known/oauth-authorization-server` and
@@ -197,9 +205,10 @@ and a real Tailscale-side incident hit along the way.
 
 | Variable | Description |
 |---|---|
-| `STUDYLIFE_BASE_URL` | Base URL of your StudyLife instance, e.g. `https://studylife.example.com/` |
-| `STUDYLIFE_API_KEY` | API key from StudyLife's setup page, sent as the `X-Api-Key` header. The stdio-mode account; also the HTTP-mode fallback for an unauthenticated request. |
-| `MCP_PUBLIC_URL` | *(HTTP mode only)* Externally reachable base URL of this server, behind your reverse proxy. Used as both the OAuth `issuer_url` and `resource_server_url`. |
+| `STUDYLIFE_BASE_URL` | Base URL of your StudyLife instance, e.g. `https://studylife.example.com/` (or a cluster-internal address in HTTP mode) - what this server itself calls, both for tool calls and the connect-flow assertion exchange. |
+| `STUDYLIFE_API_KEY` | API key from StudyLife's setup page, sent as the `X-Api-Key` header. Required for stdio mode (the single account it always runs as). Optional in HTTP mode - each caller resolves to their own account via the connect flow instead, and `StudyLifeClientResolver` fails closed rather than falling back to this key for an unauthenticated caller. |
+| `MCP_PUBLIC_URL` | *(HTTP mode only)* Externally reachable base URL of this server, behind your reverse proxy. Used as both the OAuth `issuer_url` and `resource_server_url`, and to build this server's own `/auth/studylife/callback` URL. |
+| `STUDYLIFE_CONNECT_URL` | *(HTTP mode only)* StudyLife's own public/browser-facing base URL. The OAuth `authorize()` step redirects the user's browser here (`/connect/mcp`) to log in and consent - distinct from `STUDYLIFE_BASE_URL`, which the browser never talks to. |
 | `MCP_TOKEN_ENCRYPTION_KEY` | *(HTTP mode only)* Fernet key encrypting each user's StudyLife API key at rest in the OAuth store. |
 | `MCP_OAUTH_DB_PATH` | *(HTTP mode only)* SQLite file for OAuth clients/tokens/per-user keys. Default `oauth.db`. |
 | `MCP_HTTP_HOST` / `MCP_HTTP_PORT` | *(HTTP mode only)* Bind address. Defaults `127.0.0.1:8000` (`0.0.0.0` inside Docker). |
@@ -231,9 +240,17 @@ flagged in its tool's description as user-authored data, not instructions.
   a SHA-256 digest of its arguments (not the raw values — arguments can
   contain free text), `result` (`ok`/`error`), and `duration_ms` to **stderr**
   — never stdout, which carries the stdio JSON-RPC transport.
-- **Per-user isolation in HTTP mode**: `StudyLifeClientResolver` fails closed
-  (`PermissionError`) if a valid access token's subject has no stored StudyLife
-  key — it never falls back to the `.env` account for an authenticated caller.
+- **Per-user isolation in HTTP mode, fails closed**: `StudyLifeClientResolver`
+  raises `PermissionError` instead of falling back to the `.env` account
+  whenever HTTP mode is configured and the request isn't properly bound to a
+  StudyLife account — a missing/subjectless access token, or a valid token
+  whose subject has no stored key. `STUDYLIFE_API_KEY` is only required for
+  stdio mode as a result; a pure-HTTP deployment can leave it unset.
+- **OAuth subject is the real StudyLife user id**, not a hash of the API key —
+  every new connect binds tokens to `str(userId)` from the assertion exchange
+  (see [Architecture](#architecture)). Grants made before this change keep
+  their old `sha256(key)` subject and keep resolving untouched; they are not
+  migrated.
 - **StudyLife keys are encrypted, not just hashed**, in the OAuth store — this
   server needs the plaintext back to call StudyLife on the user's behalf,
   unlike StudyLife's own key storage (hash-only, StudyLife itself never sees
@@ -256,8 +273,8 @@ flagged in its tool's description as user-authored data, not instructions.
   authenticated) to 300 requests/hour, generous over realistic usage.
 - **Connected-apps self-service, internal-only**: `/connected-apps` lets a
   StudyLife user see which OAuth clients hold a live refresh token for their
-  account and revoke one — gated the same way `/login` is (a real StudyLife
-  key, not the already-issued token). Deliberately unreachable from the
+  account and revoke one — gated by re-entering a real StudyLife key (not
+  trusting the already-issued token). Deliberately unreachable from the
   public Tailscale Funnel URL: its `Ingress` uses an explicit path allowlist
   rather than a `defaultBackend`, so `/connected-apps` 404s at the ingress
   controller before ever reaching the pod, reachable only via the
@@ -311,7 +328,7 @@ uv run pytest
 | HTTP client | `httpx`, verified against the OS certificate store (`truststore`) or a custom CA (`STUDYLIFE_CA_CERT_PATH`) |
 | Config | `pydantic-settings` + `.env` |
 | OAuth store | `aiosqlite`, StudyLife keys encrypted at rest with `cryptography.fernet` |
-| Tests | `pytest` + `respx` (HTTP mocking) + an ASGI test client for the OAuth login route |
+| Tests | `pytest` + `respx` (HTTP mocking) + an ASGI test client for the OAuth/StudyLife-connect routes |
 | Metrics | `prometheus-client`, scraped by the author's own self-hosted Prometheus |
 | CI/CD | GitHub Actions (`ruff`, `mypy --strict`, `pytest`, semantic-release, multi-arch Docker publish to GHCR, Trivy scan) |
 | Deployment | Docker (non-root) · Kubernetes (K3s) via Flux CD GitOps, see [k8s/](k8s/) · public exposure via Tailscale Funnel |

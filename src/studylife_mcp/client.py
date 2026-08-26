@@ -30,7 +30,11 @@ class StudyLifeClient:
     def __init__(self, settings: Settings) -> None:
         self._client = httpx.AsyncClient(
             base_url=str(settings.studylife_base_url),
-            headers={"X-Api-Key": settings.studylife_api_key},
+            # No key at all only happens for the never-used fallback client in a
+            # pure-HTTP-mode deployment (studylife_api_key is optional there, see
+            # config.py) - every real caller either goes through resolve() with a
+            # per-user key, or stdio mode, which requires the key to be set.
+            headers={"X-Api-Key": settings.studylife_api_key} if settings.studylife_api_key else {},
             timeout=10.0,
             verify=_build_ssl_context(settings.studylife_ca_cert_path),
         )
@@ -121,3 +125,33 @@ class StudyLifeClient:
 
     async def aclose(self) -> None:
         await self._client.aclose()
+
+
+async def exchange_mcp_assertion(settings: Settings, assertion: str) -> tuple[int, str] | None:
+    """Server-to-server exchange of a single-use MCP connect assertion (identity-contract-v1
+    section 2 step 5) for the StudyLife user id and a freshly rotated MCP API key. Talks
+    directly to studylife_base_url (cluster-internal, same CA as StudyLifeClient) rather than
+    going through a StudyLifeClient instance - this endpoint is exempt from the X-Api-Key
+    gate by design (the assertion itself is the credential), so no key is needed or sent.
+    Returns (userId, mcpApiKey), or None on any failure - expired/unknown assertion, network
+    error, or an unexpected response shape. Callers must show only a generic error on None,
+    never assertion or key material.
+    """
+    async with httpx.AsyncClient(
+        base_url=str(settings.studylife_base_url),
+        timeout=10.0,
+        verify=_build_ssl_context(settings.studylife_ca_cert_path),
+    ) as http_client:
+        try:
+            response = await http_client.post(
+                "/api/auth/mcp-assertion-exchange", json={"assertion": assertion}
+            )
+        except httpx.HTTPError:
+            return None
+    if response.status_code != 200:
+        return None
+    try:
+        data = response.json()
+        return int(data["userId"]), str(data["mcpApiKey"])
+    except (KeyError, TypeError, ValueError):
+        return None

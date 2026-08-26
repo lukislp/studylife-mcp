@@ -94,3 +94,47 @@ async def test_resolve_unknown_subject_fails_closed(
 
     with pytest.raises(PermissionError):
         await resolver.resolve()
+
+
+async def test_resolve_http_mode_without_access_token_fails_closed(
+    settings: Settings, store: OAuthStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A19/A14: with an OAuth store configured (HTTP mode), a request with no access
+    token at all must never fall back to the operator's own .env account - it should
+    never reach a tool call in the first place (the MCP SDK's auth layer rejects it),
+    but this is the defense-in-depth backstop if it somehow did."""
+    monkeypatch.setattr("studylife_mcp.client_resolver.get_access_token", lambda: None)
+
+    resolver = StudyLifeClientResolver(settings, oauth_store=store)
+
+    with pytest.raises(PermissionError):
+        await resolver.resolve()
+
+
+async def test_resolve_http_mode_subjectless_token_fails_closed(
+    settings: Settings, store: OAuthStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    token = AccessToken(token="t", client_id="c", scopes=["studylife"], subject=None)
+    monkeypatch.setattr("studylife_mcp.client_resolver.get_access_token", lambda: token)
+
+    resolver = StudyLifeClientResolver(settings, oauth_store=store)
+
+    with pytest.raises(PermissionError):
+        await resolver.resolve()
+
+
+async def test_resolve_legacy_sha256_subject_still_resolves(
+    settings: Settings, store: OAuthStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Pre-identity-contract grants have subject = sha256(api key) (OAuthStore.
+    subject_for_key), not a StudyLife userId - client_resolver treats subject as an
+    opaque string, so these old grants must keep resolving untouched, unmigrated."""
+    legacy_subject = OAuthStore.subject_for_key("some-legacy-studylife-key")
+    await store.save_user_key(legacy_subject, "some-legacy-studylife-key")
+    token = AccessToken(token="t", client_id="c", scopes=["studylife"], subject=legacy_subject)
+    monkeypatch.setattr("studylife_mcp.client_resolver.get_access_token", lambda: token)
+
+    resolver = StudyLifeClientResolver(settings, oauth_store=store)
+    client = await resolver.resolve()
+
+    assert client._client.headers["X-Api-Key"] == "some-legacy-studylife-key"

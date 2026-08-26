@@ -28,9 +28,19 @@ class StudyLifeClientResolver:
         self._client_by_subject: dict[str, StudyLifeClient] = {}
 
     async def resolve(self) -> StudyLifeClient:
-        access_token = get_access_token()
-        if access_token is None or access_token.subject is None or self._oauth_store is None:
+        if self._oauth_store is None:
+            # stdio mode, or HTTP mode not configured at all - always the single
+            # .env-configured account.
             return self._default_client
+
+        # HTTP mode is configured: never fall back to the operator's own .env account for
+        # an authenticated request missing a usable subject - that would silently leak the
+        # operator's StudyLife data to an unrelated caller (audit A14). The MCP SDK's own
+        # auth layer should already reject an unauthenticated /mcp call before a tool is
+        # ever invoked, so this is defense in depth, not the primary gate.
+        access_token = get_access_token()
+        if access_token is None or access_token.subject is None:
+            raise PermissionError("This request isn't authenticated as a StudyLife account.")
 
         subject = access_token.subject
         cached = self._client_by_subject.get(subject)

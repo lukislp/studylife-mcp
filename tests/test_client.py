@@ -12,7 +12,7 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.x509.oid import NameOID
 
-from studylife_mcp.client import StudyLifeClient, _build_ssl_context
+from studylife_mcp.client import StudyLifeClient, _build_ssl_context, exchange_mcp_assertion
 from studylife_mcp.config import Settings
 
 COURSE_PAYLOAD = [
@@ -380,6 +380,44 @@ async def test_create_session_timeout_raises(settings: Settings) -> None:
             end_time=datetime(2026, 8, 1, 11, 30),
         )
     await client.aclose()
+
+
+@respx.mock
+async def test_exchange_mcp_assertion_happy_path(settings: Settings) -> None:
+    respx.post("https://studylife.example.test/api/auth/mcp-assertion-exchange").mock(
+        return_value=httpx.Response(200, json={"userId": 42, "mcpApiKey": "rotated-key"})
+    )
+
+    result = await exchange_mcp_assertion(settings, "a-single-use-assertion")
+
+    assert result == (42, "rotated-key")
+
+
+@respx.mock
+async def test_exchange_mcp_assertion_rejected_returns_none(settings: Settings) -> None:
+    respx.post("https://studylife.example.test/api/auth/mcp-assertion-exchange").mock(
+        return_value=httpx.Response(401)
+    )
+
+    assert await exchange_mcp_assertion(settings, "expired-assertion") is None
+
+
+@respx.mock
+async def test_exchange_mcp_assertion_network_error_returns_none(settings: Settings) -> None:
+    respx.post("https://studylife.example.test/api/auth/mcp-assertion-exchange").mock(
+        side_effect=httpx.ConnectError("connection refused")
+    )
+
+    assert await exchange_mcp_assertion(settings, "some-assertion") is None
+
+
+@respx.mock
+async def test_exchange_mcp_assertion_malformed_response_returns_none(settings: Settings) -> None:
+    respx.post("https://studylife.example.test/api/auth/mcp-assertion-exchange").mock(
+        return_value=httpx.Response(200, json={"unexpected": "shape"})
+    )
+
+    assert await exchange_mcp_assertion(settings, "some-assertion") is None
 
 
 def test_build_ssl_context_defaults_to_os_trust_store() -> None:
