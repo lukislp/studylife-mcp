@@ -50,7 +50,7 @@ spec:
         seccompProfile: {type: RuntimeDefault}
       containers:
         - name: studylife-mcp
-          image: ghcr.io/lukislp/studylife-mcp:1.11.0 # {"$imagepolicy": "flux-system:studylife-mcp"}
+          image: ghcr.io/lukislp/studylife-mcp:1.12.0 # {"$imagepolicy": "flux-system:studylife-mcp"}
           securityContext:
             allowPrivilegeEscalation: false
             capabilities: {drop: ["ALL"]}
