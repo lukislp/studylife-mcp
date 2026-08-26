@@ -43,6 +43,26 @@ jobs:
       - run: uv sync --frozen
       - run: uv run pytest
 
+  # Contract tests (audit D2, consumer side): studylife-mcp hand-mirrors StudyLife's
+  # DTOs (models.py) and hand-codes the endpoints it calls (client.py) instead of
+  # generating either from studylife's committed OpenAPI spec - this diffs the
+  # mirrored surface against that spec so drift fails CI instead of surfacing as a
+  # runtime ValidationError. Separate job (not folded into `test` above) so a
+  # spec-fetch failure is unambiguous in the Actions UI rather than mixed in with
+  # unit test output. See tests/test_openapi_contract.py for the unreachable-spec
+  # handling (fails here in CI; skips for local-offline dev).
+  contract-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: astral-sh/setup-uv@v9.0.0
+        with:
+          version: "0.5.8"
+          cache-suffix: "contract-test"
+      - run: uv python install 3.12
+      - run: uv sync --frozen
+      - run: uv run pytest tests/test_openapi_contract.py -v
+
   # ---------------------------------------------------------------------
   # Version / image / release - push to main only. Mirrors studylife/
   # studylife-ai's pattern: semantic-release drives the version from
@@ -50,7 +70,7 @@ jobs:
   # see Dockerfile) is tagged and pushed to GHCR under that version.
   # ---------------------------------------------------------------------
   get-version:
-    needs: [lint, test]
+    needs: [lint, test, contract-test]
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
     # @semantic-release/github's verifyConditions step checks the token has repo push access
