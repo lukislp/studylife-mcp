@@ -68,6 +68,13 @@ CREATE TABLE IF NOT EXISTS management_sessions (
     created_at REAL NOT NULL
 );
 """
+# management_sessions.csrf_token (audit A15 item 4) is added via ALTER TABLE in
+# initialize() below, like clients.activated_at - it postdates the table above and
+# SQLite's CREATE TABLE IF NOT EXISTS won't retrofit a column onto an already-existing
+# table. Nullable: a row from a not-yet-upgraded server has no csrf_token, and
+# load_management_session_csrf_token() treats that as "no valid token" (safe-fail)
+# rather than crashing - these rows all expire within MANAGEMENT_SESSION_TTL_SECONDS
+# (10 minutes) regardless, so the gap is short-lived.
 
 # How long a /authorize -> our login form round trip has to complete before the
 # pending request is discarded. Generous for a human filling in a form once.
@@ -89,6 +96,17 @@ UNUSED_CLIENT_TTL_SECONDS = 60 * 60 * 24
 # is frequent enough that expired entries don't linger for most of the TTL window itself,
 # without adding a real background-job scheduler for something this simple.
 CLEANUP_INTERVAL_SECONDS = 60 * 60
+
+# Expired access/refresh tokens and authorization codes (audit A15 item 1) aren't
+# purged by anything until now - they're already unusable everywhere they're checked
+# (load_access_token in oauth_provider.py, and the SDK's own /token handler checks
+# refresh-token/auth-code expiry itself, see load_refresh_token/load_authorization_code
+# below), so this is a storage-hygiene sweep, not a correctness fix. The grace period
+# beyond raw expiry isn't needed for correctness either - it just gives a row that
+# *just* lapsed a beat to still show up in ad-hoc debugging ("did this ever get
+# issued") instead of vanishing the instant expires_at ticks over, mirroring
+# UNUSED_CLIENT_TTL_SECONDS' own headroom.
+TOKEN_PURGE_GRACE_SECONDS = 60 * 60 * 24
 
 # How long a "prove you own this StudyLife key" verification on /connected-apps stays
 # usable for follow-up actions (viewing the list again, revoking an entry) before the
@@ -139,6 +157,11 @@ class OAuthStore:
             except aiosqlite.OperationalError as exc:
                 if "duplicate column name" not in str(exc):
                     raise
+            try:
+                await conn.execute("ALTER TABLE management_sessions ADD COLUMN csrf_token TEXT")
+            except aiosqlite.OperationalError as exc:
+                if "duplicate column name" not in str(exc):
+                    raise
             await conn.commit()
 
     # --- clients (RFC 7591 dynamic client registration) ---
@@ -179,19 +202,53 @@ class OAuthStore:
             await conn.commit()
             return cursor.rowcount
 
+    async def cleanup_expired_tokens(self) -> int:
+        """Deletes access_tokens/refresh_tokens/auth_codes rows whose expires_at is more
+        than TOKEN_PURGE_GRACE_SECONDS in the past. Returns the number of rows deleted
+        (all three tables combined). Rows with expires_at IS NULL (no TTL - only
+        possible for access_tokens/refresh_tokens, auth_codes.expires_at is NOT NULL)
+        are never touched. auth_codes rows are usually gone already - exchange_
+        authorization_code() deletes a code the moment it's used (single-use, RFC 6749
+        §10.5) - this only catches ones nobody ever exchanged (abandoned flow, code
+        never redeemed). Given AUTHORIZATION_CODE_TTL_SECONDS is 5 minutes vs. refresh
+        tokens' 90 days, the same day-long grace period here is purely a hygiene sweep,
+        never a behavior change - by the time a code is old enough to be swept, it's
+        been rejected as expired by the SDK's own /token handler (and by
+        load_authorization_code below) for nearly 24 hours already. Called only from
+        run_periodic_cleanup() below - unlike cleanup_expired_clients(), there's no
+        natural per-request event to hang an opportunistic call off of, so the periodic
+        sweep is the only trigger."""
+        cutoff = time.time() - TOKEN_PURGE_GRACE_SECONDS
+        async with self._connection() as conn:
+            deleted = 0
+            for table in ("access_tokens", "refresh_tokens", "auth_codes"):
+                cursor = await conn.execute(
+                    f"DELETE FROM {table} WHERE expires_at IS NOT NULL AND expires_at < ?",
+                    (cutoff,),
+                )
+                deleted += cursor.rowcount
+            await conn.commit()
+            return deleted
+
     async def run_periodic_cleanup(self) -> None:
         """Background loop (started alongside the HTTP server in server.py's
-        main_http()): sweeps expired unactivated clients on CLEANUP_INTERVAL_SECONDS,
-        independent of whether any new client registers. Without this, an idle period
-        longer than UNUSED_CLIENT_TTL_SECONDS leaves expired entries sitting on the
-        studylife_mcp_registered_clients dashboard gauge indefinitely - correct on the
-        next registration either way, but misleading until then. Runs forever; the
-        caller cancels it on shutdown."""
+        main_http()): sweeps expired unactivated clients and expired access/refresh
+        tokens + authorization codes on CLEANUP_INTERVAL_SECONDS, independent of
+        whether any new client registers. Without the client half of this, an idle
+        period longer than UNUSED_CLIENT_TTL_SECONDS leaves expired entries sitting on
+        the studylife_mcp_registered_clients dashboard gauge indefinitely - correct on
+        the next registration either way, but misleading until then. The token half
+        (audit A15 item 1) has no such opportunistic fallback at all, so this periodic
+        sweep is the only thing bounding access_tokens/refresh_tokens/auth_codes
+        growth. Runs forever; the caller cancels it on shutdown."""
         while True:
             await anyio.sleep(CLEANUP_INTERVAL_SECONDS)
-            deleted = await self.cleanup_expired_clients()
-            if deleted:
-                logger.info("periodic_cleanup deleted_clients=%s", deleted)
+            deleted_clients = await self.cleanup_expired_clients()
+            if deleted_clients:
+                logger.info("periodic_cleanup deleted_clients=%s", deleted_clients)
+            deleted_tokens = await self.cleanup_expired_tokens()
+            if deleted_tokens:
+                logger.info("periodic_cleanup deleted_tokens=%s", deleted_tokens)
 
     async def register_client(self, client_info: OAuthClientInformationFull) -> None:
         async with self._connection() as conn:
@@ -259,10 +316,25 @@ class OAuthStore:
             await conn.commit()
 
     async def load_authorization_code(self, code: str) -> AuthorizationCode | None:
+        """Returns None for an unknown code AND for one that's expired (audit A15 item
+        1, defense in depth) - the MCP SDK's own /token handler checks
+        AuthorizationCode.expires_at itself before calling exchange_authorization_code
+        (mcp.server.auth.handlers.token), so this duplicates that check rather than
+        relying on it: any future/direct caller of the store gets the same "expired
+        means gone" guarantee instead of needing to remember to re-check expires_at
+        itself. Both an unknown code and an expired one already map to the same
+        'invalid_grant' family of error on the SDK path, so returning None either way
+        doesn't change externally observable behavior there - only the error_description
+        text differs ('does not exist' vs 'has expired')."""
         async with self._connection() as conn:
             cursor = await conn.execute("SELECT code_json FROM auth_codes WHERE code = ?", (code,))
             row = await cursor.fetchone()
-        return AuthorizationCode.model_validate_json(row[0]) if row else None
+        if row is None:
+            return None
+        loaded = AuthorizationCode.model_validate_json(row[0])
+        if loaded.expires_at < time.time():
+            return None
+        return loaded
 
     async def delete_authorization_code(self, code: str) -> None:
         async with self._connection() as conn:
@@ -309,12 +381,21 @@ class OAuthStore:
             await conn.commit()
 
     async def load_refresh_token(self, token: str) -> RefreshToken | None:
+        """Returns None for an unknown token AND for an expired one - see
+        load_authorization_code's docstring above for why (same defense-in-depth
+        reasoning, same "unknown and expired both already error out the same way on
+        the SDK path" argument). A token with expires_at IS NULL never expires."""
         async with self._connection() as conn:
             cursor = await conn.execute(
                 "SELECT token_json FROM refresh_tokens WHERE token = ?", (token,)
             )
             row = await cursor.fetchone()
-        return RefreshToken.model_validate_json(row[0]) if row else None
+        if row is None:
+            return None
+        loaded = RefreshToken.model_validate_json(row[0])
+        if loaded.expires_at is not None and loaded.expires_at < time.time():
+            return None
+        return loaded
 
     async def delete_refresh_token(self, token: str) -> None:
         async with self._connection() as conn:
@@ -352,20 +433,29 @@ class OAuthStore:
 
     # --- connected-apps self-service (/connected-apps): view/revoke per-subject grants ---
 
-    async def create_management_session(self, subject: str) -> str:
+    async def create_management_session(self, subject: str) -> tuple[str, str]:
         """Re-validating the StudyLife key once (same check as /login) proves the
         caller owns `subject`; this opaque session id stands in for the raw key on
         every follow-up request on the page (list refresh, revoke click) so the key
-        itself is never echoed back into rendered HTML."""
+        itself is never echoed back into rendered HTML. Returns (session_id,
+        csrf_token): session_id is carried via a cookie (oauth_provider.py sets it,
+        HttpOnly/Secure/SameSite=Lax, scoped to /connected-apps - audit A15 item 3), and
+        csrf_token is rendered into the revoke form's hidden field and checked against
+        this same stored value on submit (audit A15 item 4). Two independent secrets on
+        purpose: a cookie alone doesn't stop CSRF (browsers attach it automatically to a
+        cross-site form post too), and the whole point of the token is to prove the
+        request came from a page this server itself rendered, not just that the browser
+        holds a valid cookie."""
         session_id = secrets.token_urlsafe(24)
+        csrf_token = secrets.token_urlsafe(24)
         async with self._connection() as conn:
             await conn.execute(
-                "INSERT INTO management_sessions (session_id, subject, created_at) "
-                "VALUES (?, ?, ?)",
-                (session_id, subject, time.time()),
+                "INSERT INTO management_sessions (session_id, subject, created_at, csrf_token) "
+                "VALUES (?, ?, ?, ?)",
+                (session_id, subject, time.time(), csrf_token),
             )
             await conn.commit()
-        return session_id
+        return session_id, csrf_token
 
     async def load_management_session(self, session_id: str) -> str | None:
         """Returns the verified subject, or None if the session id is unknown or its
@@ -384,22 +474,67 @@ class OAuthStore:
             return None
         return str(subject)
 
+    async def load_management_session_csrf_token(self, session_id: str) -> str | None:
+        """The CSRF token bound to this management session (see
+        create_management_session above), or None if the session id is unknown, its
+        TTL has passed (same rule as load_management_session), or the row predates the
+        csrf_token column. Kept as a separate lookup rather than folded into
+        load_management_session's return value so every existing caller of that method
+        (there are several) keeps working unchanged - callers that actually need the
+        CSRF token (the /connected-apps GET and revoke routes) fetch it explicitly."""
+        async with self._connection() as conn:
+            cursor = await conn.execute(
+                "SELECT csrf_token, created_at FROM management_sessions WHERE session_id = ?",
+                (session_id,),
+            )
+            row = await cursor.fetchone()
+        if row is None:
+            return None
+        csrf_token, created_at = row
+        if created_at < time.time() - MANAGEMENT_SESSION_TTL_SECONDS:
+            return None
+        return str(csrf_token) if csrf_token is not None else None
+
     async def list_connected_clients(self, subject: str) -> list[ConnectedClient]:
-        """Apps with a *live* refresh token for this subject - registering (DCR) alone
-        doesn't grant access, completing the login flow at least once does, and that's
-        exactly what issuing a refresh token represents. Filtered in Python rather than
-        by a SQL column: subject lives inside refresh_tokens.token_json (the SDK's own
-        RefreshToken shape), and this table is tiny at this server's traffic scale."""
+        """Apps with at least one *live* (non-expired) refresh token for this subject -
+        registering (DCR) alone doesn't grant access, completing the login flow at
+        least once does, and that's exactly what issuing a refresh token represents.
+        Filtered in Python rather than by a SQL column: subject lives inside
+        refresh_tokens.token_json (the SDK's own RefreshToken shape), and this table is
+        tiny at this server's traffic scale.
+
+        A client can have more than one refresh_tokens row for the same subject (e.g.
+        it reconnected via a fresh /authorize round trip instead of a refresh-token
+        exchange, which would have rotated/replaced the old row) - audit A15 item 2:
+        a client is only excluded if EVERY row for it is expired, and if several rows
+        are still live the furthest-out expires_at is what gets shown, so a page
+        refresh right after a rotation can't make an app that's still connected briefly
+        disappear or show a stale "active until" date."""
+        now = time.time()
         async with self._connection() as conn:
             cursor = await conn.execute(
                 "SELECT client_id, token_json, expires_at FROM refresh_tokens"
             )
             rows = await cursor.fetchall()
-            results = []
+
+            def rank(expires_at: float | None) -> float:
+                # No-expiry (None) always outranks any concrete expires_at.
+                return float("inf") if expires_at is None else expires_at
+
+            live_expiry_by_client: dict[str, float | None] = {}
             for client_id, token_json, expires_at in rows:
                 token = RefreshToken.model_validate_json(token_json)
                 if token.subject != subject:
                     continue
+                if expires_at is not None and expires_at < now:
+                    continue  # this row's grant has lapsed - doesn't count towards "live"
+                if client_id not in live_expiry_by_client or rank(expires_at) > rank(
+                    live_expiry_by_client[client_id]
+                ):
+                    live_expiry_by_client[client_id] = expires_at
+
+            results = []
+            for client_id, expires_at in live_expiry_by_client.items():
                 client_cursor = await conn.execute(
                     "SELECT info_json FROM clients WHERE client_id = ?", (client_id,)
                 )

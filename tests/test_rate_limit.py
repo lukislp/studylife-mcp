@@ -1,9 +1,17 @@
+import hashlib
+
+import anyio
 import httpx
 from starlette.applications import Starlette
+from starlette.requests import Request
 from starlette.responses import PlainTextResponse
 from starlette.routing import Route
 
-from studylife_mcp.rate_limit import McpCallRateLimitMiddleware, RegistrationRateLimitMiddleware
+from studylife_mcp.rate_limit import (
+    McpCallRateLimitMiddleware,
+    RegistrationRateLimitMiddleware,
+    bearer_token_key,
+)
 
 
 def _make_app(*, max_requests: int, window_seconds: float) -> Starlette:
@@ -141,3 +149,91 @@ async def test_mcp_requests_without_bearer_token_fall_back_to_ip() -> None:
         second = await client.post("/mcp", headers={"x-forwarded-for": "5.5.5.5"})
         assert first.status_code == 200
         assert second.status_code == 429
+
+
+def _request_with_bearer_token(token: str) -> Request:
+    scope = {
+        "type": "http",
+        "headers": [(b"authorization", f"Bearer {token}".encode())],
+    }
+    return Request(scope)
+
+
+def test_bearer_token_key_does_not_contain_the_raw_token() -> None:
+    key = bearer_token_key(_request_with_bearer_token("super-secret-access-token"))
+
+    assert "super-secret-access-token" not in key
+    assert key.startswith("token:")
+    assert key == f"token:{hashlib.sha256(b'super-secret-access-token').hexdigest()}"
+
+
+def test_bearer_token_key_is_deterministic_and_distinguishes_tokens() -> None:
+    key_a1 = bearer_token_key(_request_with_bearer_token("token-a"))
+    key_a2 = bearer_token_key(_request_with_bearer_token("token-a"))
+    key_b = bearer_token_key(_request_with_bearer_token("token-b"))
+
+    assert key_a1 == key_a2
+    assert key_a1 != key_b
+
+
+async def test_stale_buckets_are_pruned_after_window_and_prune_interval_elapse() -> None:
+    """audit A15 item 5: a bucket for a key nobody has hit again just sits in _hits
+    forever, since a key's own deque is only trimmed when that same key is hit again.
+    Force pruning to run on every call (interval=0) and give the first key's single
+    hit time to age out of its own (tiny) window, then confirm a request from a
+    different key sweeps it away instead of leaving it to grow unbounded."""
+    import studylife_mcp.rate_limit as rate_limit_module
+
+    async def inner_app(scope, receive, send):  # type: ignore[no-untyped-def]
+        response = PlainTextResponse("ok")
+        await response(scope, receive, send)
+
+    original_interval = rate_limit_module.RATE_LIMIT_BUCKET_PRUNE_INTERVAL_SECONDS
+    rate_limit_module.RATE_LIMIT_BUCKET_PRUNE_INTERVAL_SECONDS = 0
+    try:
+        middleware = McpCallRateLimitMiddleware(
+            inner_app, path="/mcp", max_requests=10, window_seconds=0.05
+        )
+        transport = httpx.ASGITransport(app=middleware)
+        async with httpx.AsyncClient(
+            transport=transport, base_url="https://mcp.example.test"
+        ) as client:
+            await client.post("/mcp", headers={"authorization": "Bearer token-a"})
+            assert len(middleware._hits) == 1
+
+            await anyio.sleep(0.1)  # let token-a's bucket age out of its own window
+
+            await client.post("/mcp", headers={"authorization": "Bearer token-b"})
+
+        stale_key = bearer_token_key(_request_with_bearer_token("token-a"))
+        fresh_key = bearer_token_key(_request_with_bearer_token("token-b"))
+        assert stale_key not in middleware._hits
+        assert fresh_key in middleware._hits
+        assert len(middleware._hits) == 1
+    finally:
+        rate_limit_module.RATE_LIMIT_BUCKET_PRUNE_INTERVAL_SECONDS = original_interval
+
+
+async def test_pruning_does_not_remove_buckets_still_within_their_window() -> None:
+    import studylife_mcp.rate_limit as rate_limit_module
+
+    async def inner_app(scope, receive, send):  # type: ignore[no-untyped-def]
+        response = PlainTextResponse("ok")
+        await response(scope, receive, send)
+
+    original_interval = rate_limit_module.RATE_LIMIT_BUCKET_PRUNE_INTERVAL_SECONDS
+    rate_limit_module.RATE_LIMIT_BUCKET_PRUNE_INTERVAL_SECONDS = 0
+    try:
+        middleware = McpCallRateLimitMiddleware(
+            inner_app, path="/mcp", max_requests=10, window_seconds=3600
+        )
+        transport = httpx.ASGITransport(app=middleware)
+        async with httpx.AsyncClient(
+            transport=transport, base_url="https://mcp.example.test"
+        ) as client:
+            await client.post("/mcp", headers={"authorization": "Bearer token-a"})
+            await client.post("/mcp", headers={"authorization": "Bearer token-b"})
+
+        assert len(middleware._hits) == 2
+    finally:
+        rate_limit_module.RATE_LIMIT_BUCKET_PRUNE_INTERVAL_SECONDS = original_interval
