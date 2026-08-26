@@ -1,3 +1,4 @@
+import hmac
 import html
 import secrets
 import time
@@ -20,7 +21,11 @@ from starlette.responses import HTMLResponse, RedirectResponse, Response
 
 from studylife_mcp.client import StudyLifeClient, exchange_mcp_assertion
 from studylife_mcp.config import Settings
-from studylife_mcp.oauth_store import ConnectedClient, OAuthStore
+from studylife_mcp.oauth_store import (
+    MANAGEMENT_SESSION_TTL_SECONDS,
+    ConnectedClient,
+    OAuthStore,
+)
 
 # Single scope: no per-tool/read-vs-write scoping exists yet (every tool is available
 # to any authenticated caller, same as stdio mode) - revisit if that ever needs to
@@ -30,6 +35,19 @@ SCOPE = "studylife"
 ACCESS_TOKEN_TTL_SECONDS = 60 * 60  # 1 hour
 REFRESH_TOKEN_TTL_SECONDS = 60 * 60 * 24 * 90  # 90 days, rotated on every use
 AUTHORIZATION_CODE_TTL_SECONDS = 300  # 5 minutes to complete the token exchange
+
+# /connected-apps' management session id (audit A15 item 3) - carried as a cookie rather
+# than the URL query param it used to be, since a query param ends up in browser history,
+# the Referer header of any link/asset the page loads, and this server's own access logs.
+# HttpOnly (JS on the page can't read it - not that this page has any of its own, but no
+# reason to allow it), Secure (only sent back over HTTPS - mcp_public_url is always https,
+# see config.py), SameSite=Lax (sent on the plain-GET navigations this flow depends on -
+# following the /connected-apps link, the login form's redirect - but not attached to a
+# cross-site POST, which is exactly the CSRF surface item 4 below closes the rest of the
+# way), and Path-scoped to MANAGEMENT_COOKIE_PATH so it's never sent to /mcp or any other
+# route on this server.
+MANAGEMENT_SESSION_COOKIE = "studylife_mcp_mgmt_session"
+MANAGEMENT_COOKIE_PATH = "/connected-apps"
 
 
 class StudyLifeOAuthProvider(
@@ -306,6 +324,25 @@ def _format_expiry(expires_at: float | None) -> str:
     return f"Active until {datetime.fromtimestamp(expires_at, tz=UTC):%Y-%m-%d}"
 
 
+def _set_management_session_cookie(response: Response, session_id: str) -> None:
+    response.set_cookie(
+        MANAGEMENT_SESSION_COOKIE,
+        session_id,
+        max_age=MANAGEMENT_SESSION_TTL_SECONDS,
+        path=MANAGEMENT_COOKIE_PATH,
+        secure=True,
+        httponly=True,
+        samesite="lax",
+    )
+
+
+def _clear_management_session_cookie(response: Response) -> None:
+    """Used whenever a session id turns out to be invalid/expired - drops the dead
+    cookie instead of leaving it around for the browser to keep re-sending on every
+    future /connected-apps visit."""
+    response.delete_cookie(MANAGEMENT_SESSION_COOKIE, path=MANAGEMENT_COOKIE_PATH)
+
+
 def _render_connected_apps_login_page(*, error: str | None = None) -> str:
     error_html = f'<p class="error">{html.escape(error)}</p>' if error else ""
     return f"""<!doctype html>
@@ -334,7 +371,13 @@ to your StudyLife account, and revoke any you no longer recognize.</p>
 """
 
 
-def _render_connected_apps_list_page(session_id: str, clients: list[ConnectedClient]) -> str:
+def _render_connected_apps_list_page(clients: list[ConnectedClient], csrf_token: str) -> str:
+    # session_id is no longer threaded through this form (audit A15 item 3) - the
+    # browser already sends it automatically via MANAGEMENT_SESSION_COOKIE on this POST,
+    # since the form's action is under MANAGEMENT_COOKIE_PATH. csrf_token still has to be
+    # a hidden field (audit A15 item 4): unlike the cookie, it must NOT be something the
+    # browser attaches on its own to a forged cross-site request - the whole point is
+    # that only a same-origin page render (this one) knows it.
     if clients:
         body = "\n".join(
             f"""<div class="app-row">
@@ -343,7 +386,7 @@ def _render_connected_apps_list_page(session_id: str, clients: list[ConnectedCli
     <div class="app-expires">{_format_expiry(c.expires_at)}</div>
   </div>
   <form method="post" action="/connected-apps/revoke">
-    <input type="hidden" name="session_id" value="{html.escape(session_id)}">
+    <input type="hidden" name="csrf_token" value="{html.escape(csrf_token)}">
     <input type="hidden" name="client_id" value="{html.escape(c.client_id)}">
     <button class="btn-danger" type="submit">Revoke</button>
   </form>
@@ -440,12 +483,29 @@ def register_oauth_routes(mcp: MCPServer, store: OAuthStore, settings: Settings)
     # compromised.
     @mcp.custom_route("/connected-apps", methods=["GET"])  # type: ignore[untyped-decorator]
     async def connected_apps_view(request: Request) -> Response:
-        session_id = request.query_params.get("session_id", "")
-        subject = await store.load_management_session(session_id) if session_id else None
-        if subject is None:
+        cookie_session_id = request.cookies.get(MANAGEMENT_SESSION_COOKIE)
+        if cookie_session_id is None:
+            # Transition for a bookmark/link from before session_id moved out of the
+            # URL and into a cookie (audit A15 item 3): accept it once, immediately move
+            # it into the cookie, and redirect to the clean URL so it stops appearing in
+            # browser history / the Referer header / this server's own access logs from
+            # here on.
+            query_session_id = request.query_params.get("session_id")
+            if query_session_id:
+                redirect: Response = RedirectResponse("/connected-apps", status_code=302)
+                _set_management_session_cookie(redirect, query_session_id)
+                return redirect
             return HTMLResponse(_render_connected_apps_login_page())
+
+        subject = await store.load_management_session(cookie_session_id)
+        if subject is None:
+            response = HTMLResponse(_render_connected_apps_login_page())
+            _clear_management_session_cookie(response)
+            return response
+
+        csrf_token = await store.load_management_session_csrf_token(cookie_session_id) or ""
         clients = await store.list_connected_clients(subject)
-        return HTMLResponse(_render_connected_apps_list_page(session_id, clients))
+        return HTMLResponse(_render_connected_apps_list_page(clients, csrf_token))
 
     @mcp.custom_route("/connected-apps", methods=["POST"])  # type: ignore[untyped-decorator]
     async def connected_apps_login(request: Request) -> Response:
@@ -467,18 +527,51 @@ def register_oauth_routes(mcp: MCPServer, store: OAuthStore, settings: Settings)
             )
 
         subject = store.subject_for_key(api_key)
-        session_id = await store.create_management_session(subject)
-        return RedirectResponse(f"/connected-apps?session_id={session_id}", status_code=303)
+        # csrf_token isn't needed here - it travels only as far as the GET this redirect
+        # lands on, which fetches it fresh (load_management_session_csrf_token below).
+        session_id, _csrf_token = await store.create_management_session(subject)
+        response = RedirectResponse("/connected-apps", status_code=303)
+        _set_management_session_cookie(response, session_id)
+        return response
 
     @mcp.custom_route("/connected-apps/revoke", methods=["POST"])  # type: ignore[untyped-decorator]
     async def connected_apps_revoke(request: Request) -> Response:
         form = await request.form()
-        session_id = str(form.get("session_id", ""))
         client_id = str(form.get("client_id", ""))
+        submitted_csrf_token = str(form.get("csrf_token", ""))
+        # Cookie is the normal source; a form-carried session_id is only accepted as a
+        # fallback for a /connected-apps page rendered by the *previous* server version
+        # (hidden session_id field, no cookie set) that a browser still has open across
+        # a deploy - _render_connected_apps_list_page never renders that field anymore,
+        # so a freshly-loaded page always relies on the cookie alone.
+        session_id = request.cookies.get(MANAGEMENT_SESSION_COOKIE) or str(
+            form.get("session_id", "")
+        )
 
         subject = await store.load_management_session(session_id) if session_id else None
         if subject is None:
-            return HTMLResponse(_render_connected_apps_login_page(), status_code=400)
+            response: Response = HTMLResponse(_render_connected_apps_login_page(), status_code=400)
+            _clear_management_session_cookie(response)
+            return response
+
+        # CSRF check (audit A15 item 4): the session cookie alone doesn't prove this POST
+        # was submitted from a page this server rendered - a browser attaches cookies to
+        # a cross-site forged form post too. The csrf_token hidden field only ends up in
+        # a request if whoever sent it first loaded /connected-apps and read it out of
+        # that page, which a third-party site can't do (no way to read another origin's
+        # response body). Constant-time compare so a byte-by-byte timing difference can't
+        # leak the token faster than brute-forcing its full 24 bytes of entropy.
+        stored_csrf_token = await store.load_management_session_csrf_token(session_id)
+        csrf_ok = stored_csrf_token and hmac.compare_digest(submitted_csrf_token, stored_csrf_token)
+        if not csrf_ok:
+            return HTMLResponse(
+                _render_connected_apps_login_page(
+                    error="Your session could not be verified. Please sign in again."
+                ),
+                status_code=403,
+            )
 
         await store.revoke_client_access(subject, client_id)
-        return RedirectResponse(f"/connected-apps?session_id={session_id}", status_code=303)
+        response = RedirectResponse("/connected-apps", status_code=303)
+        _set_management_session_cookie(response, session_id)
+        return response

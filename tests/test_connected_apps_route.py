@@ -1,5 +1,4 @@
 from pathlib import Path
-from urllib.parse import parse_qs, urlparse
 
 import httpx
 import pytest
@@ -12,7 +11,12 @@ from mcp.shared.auth import OAuthClientInformationFull
 from pydantic import AnyUrl
 
 from studylife_mcp.config import Settings
-from studylife_mcp.oauth_provider import SCOPE, StudyLifeOAuthProvider, register_oauth_routes
+from studylife_mcp.oauth_provider import (
+    MANAGEMENT_SESSION_COOKIE,
+    SCOPE,
+    StudyLifeOAuthProvider,
+    register_oauth_routes,
+)
 from studylife_mcp.oauth_store import OAuthStore
 
 API_KEY = "a-real-studylife-key"
@@ -90,10 +94,63 @@ async def test_get_without_session_shows_key_form(app_client: httpx.AsyncClient)
 
 
 async def test_get_with_unknown_session_shows_key_form(app_client: httpx.AsyncClient) -> None:
-    response = await app_client.get("/connected-apps", params={"session_id": "does-not-exist"})
+    # No cookie set, but an (invalid) session_id arrives via the legacy query param - the
+    # transition path (audit A15 item 3) always accepts it and redirects once before
+    # validating, so follow that redirect to see the actual outcome.
+    response = await app_client.get(
+        "/connected-apps", params={"session_id": "does-not-exist"}, follow_redirects=True
+    )
 
     assert response.status_code == 200
     assert "api_key" in response.text
+
+
+async def test_get_with_query_session_id_sets_cookie_and_redirects_to_clean_url(
+    app_client: httpx.AsyncClient,
+) -> None:
+    """audit A15 item 3: a bookmarked/old-style link carrying ?session_id=... in the URL
+    must not keep leaking it - the first hit moves it into a cookie and lands on a URL
+    with no query string at all."""
+    response = await app_client.get(
+        "/connected-apps", params={"session_id": "some-session-id"}, follow_redirects=False
+    )
+
+    assert response.status_code == 302
+    assert response.headers["location"] == "/connected-apps"
+    set_cookie = response.headers.get("set-cookie", "")
+    assert f"{MANAGEMENT_SESSION_COOKIE}=some-session-id" in set_cookie
+    assert "httponly" in set_cookie.lower()
+    assert "secure" in set_cookie.lower()
+    assert "samesite=lax" in set_cookie.lower()
+    assert "path=/connected-apps" in set_cookie.lower()
+
+
+async def test_get_with_valid_cookie_shows_list_without_query_param(
+    app_client: httpx.AsyncClient, store: OAuthStore
+) -> None:
+    subject = store.subject_for_key(API_KEY)
+    session_id, _csrf_token = await store.create_management_session(subject)
+    app_client.cookies.set(MANAGEMENT_SESSION_COOKIE, session_id, path="/connected-apps")
+
+    response = await app_client.get("/connected-apps")
+
+    assert response.status_code == 200
+    assert "no apps" in response.text.lower()
+
+
+async def test_get_with_invalid_cookie_clears_it_and_shows_key_form(
+    app_client: httpx.AsyncClient,
+) -> None:
+    app_client.cookies.set(MANAGEMENT_SESSION_COOKIE, "does-not-exist", path="/connected-apps")
+
+    response = await app_client.get("/connected-apps")
+
+    assert response.status_code == 200
+    assert "api_key" in response.text
+    set_cookie = response.headers.get("set-cookie", "")
+    assert f'{MANAGEMENT_SESSION_COOKIE}=""' in set_cookie or f"{MANAGEMENT_SESSION_COOKIE}=;" in (
+        set_cookie.replace(" ", "")
+    )
 
 
 async def test_post_missing_key_reshows_form(app_client: httpx.AsyncClient) -> None:
@@ -116,7 +173,7 @@ async def test_post_rejected_key_reshows_form_with_error(
 
 
 @respx.mock
-async def test_post_valid_key_redirects_to_list_with_session(
+async def test_post_valid_key_redirects_to_clean_url_and_sets_session_cookie(
     app_client: httpx.AsyncClient, settings: Settings
 ) -> None:
     respx.get("https://studylife.example.test/api/courses").mock(
@@ -128,9 +185,12 @@ async def test_post_valid_key_redirects_to_list_with_session(
     )
 
     assert response.status_code == 303
-    redirect = urlparse(response.headers["location"])
-    assert redirect.path == "/connected-apps"
-    assert "session_id" in parse_qs(redirect.query)
+    # No session_id in the redirect target (audit A15 item 3) - it travels via cookie now.
+    assert response.headers["location"] == "/connected-apps"
+    set_cookie = response.headers.get("set-cookie", "")
+    assert f"{MANAGEMENT_SESSION_COOKIE}=" in set_cookie
+    assert "httponly" in set_cookie.lower()
+    assert "secure" in set_cookie.lower()
 
 
 @respx.mock
@@ -144,9 +204,11 @@ async def test_list_shows_connected_client_and_no_others(
     login = await app_client.post(
         "/connected-apps", data={"api_key": API_KEY}, follow_redirects=False
     )
-    session_id = parse_qs(urlparse(login.headers["location"]).query)["session_id"][0]
+    assert login.status_code == 303
 
-    response = await app_client.get("/connected-apps", params={"session_id": session_id})
+    # Same client instance - the cookie set by the login response above is sent
+    # automatically, no session_id param needed.
+    response = await app_client.get("/connected-apps")
 
     assert response.status_code == 200
     assert "Claude" in response.text
@@ -156,9 +218,10 @@ async def test_list_empty_state_when_nothing_connected(
     app_client: httpx.AsyncClient, store: OAuthStore
 ) -> None:
     subject = store.subject_for_key(API_KEY)
-    session_id = await store.create_management_session(subject)
+    session_id, _csrf_token = await store.create_management_session(subject)
+    app_client.cookies.set(MANAGEMENT_SESSION_COOKIE, session_id, path="/connected-apps")
 
-    response = await app_client.get("/connected-apps", params={"session_id": session_id})
+    response = await app_client.get("/connected-apps")
 
     assert response.status_code == 200
     assert "no apps" in response.text.lower()
@@ -180,11 +243,12 @@ async def test_revoke_deletes_tokens_and_removes_from_list(
     app_client: httpx.AsyncClient, store: OAuthStore
 ) -> None:
     subject = await _connect_client(store, client_id="claude", client_name="Claude")
-    session_id = await store.create_management_session(subject)
+    session_id, csrf_token = await store.create_management_session(subject)
+    app_client.cookies.set(MANAGEMENT_SESSION_COOKIE, session_id, path="/connected-apps")
 
     response = await app_client.post(
         "/connected-apps/revoke",
-        data={"session_id": session_id, "client_id": "claude"},
+        data={"client_id": "claude", "csrf_token": csrf_token},
         follow_redirects=False,
     )
 
@@ -192,8 +256,65 @@ async def test_revoke_deletes_tokens_and_removes_from_list(
     assert await store.load_access_token("access-claude") is None
     assert await store.load_refresh_token("refresh-claude") is None
 
-    follow_up = await app_client.get("/connected-apps", params={"session_id": session_id})
+    follow_up = await app_client.get("/connected-apps")
     assert "Claude" not in follow_up.text
+
+
+async def test_revoke_without_csrf_token_is_rejected(
+    app_client: httpx.AsyncClient, store: OAuthStore
+) -> None:
+    subject = await _connect_client(store, client_id="claude", client_name="Claude")
+    session_id, _csrf_token = await store.create_management_session(subject)
+    app_client.cookies.set(MANAGEMENT_SESSION_COOKIE, session_id, path="/connected-apps")
+
+    response = await app_client.post(
+        "/connected-apps/revoke",
+        data={"client_id": "claude"},  # no csrf_token field at all
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 403
+    # Token must not have been revoked.
+    assert await store.load_access_token("access-claude") is not None
+
+
+async def test_revoke_with_wrong_csrf_token_is_rejected(
+    app_client: httpx.AsyncClient, store: OAuthStore
+) -> None:
+    subject = await _connect_client(store, client_id="claude", client_name="Claude")
+    session_id, _csrf_token = await store.create_management_session(subject)
+    app_client.cookies.set(MANAGEMENT_SESSION_COOKIE, session_id, path="/connected-apps")
+
+    response = await app_client.post(
+        "/connected-apps/revoke",
+        data={"client_id": "claude", "csrf_token": "not-the-right-token"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 403
+    assert await store.load_access_token("access-claude") is not None
+
+
+async def test_revoke_rendered_form_carries_the_real_csrf_token(
+    app_client: httpx.AsyncClient, store: OAuthStore
+) -> None:
+    """End-to-end: the token embedded in the server-rendered list page's revoke form is
+    exactly the one that passes validation - not a placeholder that happens to be
+    accepted."""
+    subject = await _connect_client(store, client_id="claude", client_name="Claude")
+    session_id, csrf_token = await store.create_management_session(subject)
+    app_client.cookies.set(MANAGEMENT_SESSION_COOKIE, session_id, path="/connected-apps")
+
+    page = await app_client.get("/connected-apps")
+    assert csrf_token in page.text
+
+    response = await app_client.post(
+        "/connected-apps/revoke",
+        data={"client_id": "claude", "csrf_token": csrf_token},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
 
 
 async def test_revoke_does_not_affect_other_subjects(
@@ -221,10 +342,11 @@ async def test_revoke_does_not_affect_other_subjects(
         )
     )
 
-    session_id = await store.create_management_session(subject)
+    session_id, csrf_token = await store.create_management_session(subject)
+    app_client.cookies.set(MANAGEMENT_SESSION_COOKIE, session_id, path="/connected-apps")
     await app_client.post(
         "/connected-apps/revoke",
-        data={"session_id": session_id, "client_id": "shared-client"},
+        data={"client_id": "shared-client", "csrf_token": csrf_token},
     )
 
     assert await store.load_access_token("access-other") is not None
