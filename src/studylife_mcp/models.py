@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 from pydantic.alias_generators import to_camel
 
 
@@ -38,6 +38,13 @@ class Note(StudyLifeModel):
     session_id: int | None = None
     is_markdown: bool = False
     source_url: str | None = None
+    # 2026-08 note-enrichment fields (studylife repo) - nullable/server-generated, so
+    # all three are optional here with defaults matching what an unenriched note (or
+    # an older server) actually sends. tags is comma-separated free text like
+    # CourseGoal.completed_topics below, not a JSON array on the wire.
+    tags: str | None = None
+    summary: str | None = None
+    related_note_ids: list[int] = Field(default_factory=list)
 
 
 class Session(StudyLifeModel):
