@@ -127,15 +127,22 @@ class StudyLifeClient:
         await self._client.aclose()
 
 
-async def exchange_mcp_assertion(settings: Settings, assertion: str) -> tuple[int, str] | None:
-    """Server-to-server exchange of a single-use MCP connect assertion (identity-contract-v1
-    section 2 step 5) for the StudyLife user id and a freshly rotated MCP API key. Talks
-    directly to studylife_base_url (cluster-internal, same CA as StudyLifeClient) rather than
-    going through a StudyLifeClient instance - this endpoint is exempt from the X-Api-Key
-    gate by design (the assertion itself is the credential), so no key is needed or sent.
-    Returns (userId, mcpApiKey), or None on any failure - expired/unknown assertion, network
-    error, or an unexpected response shape. Callers must show only a generic error on None,
-    never assertion or key material.
+class AssertionExchangeError(Exception):
+    """Raised by exchange_mcp_assertion_verbose on any failure of the assertion exchange,
+    carrying a human-readable reason. Used by callers that may show that reason to the
+    person driving the exchange (the login CLI, login.py) - unlike
+    exchange_mcp_assertion below, used by the browser-facing OAuth callback, which only
+    ever shows a generic error to an arbitrary web visitor and has no reason to repeat
+    StudyLife's raw response text back to them."""
+
+
+async def exchange_mcp_assertion_verbose(settings: Settings, assertion: str) -> tuple[int, str]:
+    """Same server-to-server exchange as exchange_mcp_assertion (see its docstring for the
+    protocol details), but raises AssertionExchangeError with a descriptive message
+    instead of returning None on failure. Talks directly to studylife_base_url
+    (cluster-internal, same CA as StudyLifeClient) rather than going through a
+    StudyLifeClient instance - this endpoint is exempt from the X-Api-Key gate by design
+    (the assertion itself is the credential), so no key is needed or sent.
     """
     async with httpx.AsyncClient(
         base_url=str(settings.studylife_base_url),
@@ -146,12 +153,28 @@ async def exchange_mcp_assertion(settings: Settings, assertion: str) -> tuple[in
             response = await http_client.post(
                 "/api/auth/mcp-assertion-exchange", json={"assertion": assertion}
             )
-        except httpx.HTTPError:
-            return None
+        except httpx.HTTPError as exc:
+            raise AssertionExchangeError(f"Could not reach StudyLife: {exc}") from exc
     if response.status_code != 200:
-        return None
+        raise AssertionExchangeError(
+            f"StudyLife rejected the login ({response.status_code}): {response.text.strip()}"
+        )
     try:
         data = response.json()
         return int(data["userId"]), str(data["mcpApiKey"])
-    except (KeyError, TypeError, ValueError):
+    except (KeyError, TypeError, ValueError) as exc:
+        raise AssertionExchangeError("StudyLife returned an unexpected response shape.") from exc
+
+
+async def exchange_mcp_assertion(settings: Settings, assertion: str) -> tuple[int, str] | None:
+    """Server-to-server exchange of a single-use MCP connect assertion (identity-contract-v1
+    section 2 step 5) for the StudyLife user id and a freshly rotated MCP API key.
+    Returns (userId, mcpApiKey), or None on any failure - expired/unknown assertion, network
+    error, or an unexpected response shape. Callers must show only a generic error on None,
+    never assertion or key material - a thin wrapper around exchange_mcp_assertion_verbose
+    that discards its error detail for exactly that reason.
+    """
+    try:
+        return await exchange_mcp_assertion_verbose(settings, assertion)
+    except AssertionExchangeError:
         return None

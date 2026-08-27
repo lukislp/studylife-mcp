@@ -37,6 +37,7 @@ dependencies = [
 [project.scripts]
 studylife-mcp = "studylife_mcp.server:main"
 studylife-mcp-http = "studylife_mcp.server:main_http"
+studylife-mcp-login = "studylife_mcp.login:main"
 
 [tool.uv]
 dev-dependencies = [
