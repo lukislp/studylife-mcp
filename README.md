@@ -135,8 +135,11 @@ request isn't properly authenticated â€” see [docs/decisions.md](docs/decis
      printed to the terminal. Options: `--base-url` (override
      `STUDYLIFE_BASE_URL` for this run), `--env-file` (default `.env`),
      `--timeout` (seconds to wait for the browser round trip, default 300).
-   - **Manual (fallback):** in StudyLife's Setup page â†’ "StudyLife MCP Server"
-     card, generate a dedicated key by hand and paste it into `.env` as
+   - **Manual (fallback for older StudyLife instances only):** current StudyLife
+     releases no longer offer an MCP key on the Setup page - the browser login
+     above is the only provisioning path. On an older instance that predates
+     the loopback exception, generate a dedicated key on its Setup page
+     ("StudyLife MCP Server" card) and paste it into `.env` as
      `STUDYLIFE_API_KEY`.
 
 4. Add to your Claude Desktop config (`claude_desktop_config.json`):
@@ -171,8 +174,9 @@ request isn't properly authenticated â€” see [docs/decisions.md](docs/decis
 Run this behind your own reverse proxy (TLS terminates there) to add
 `studylife-mcp` as a **remote** MCP connector â€” e.g. via a client's "Custom
 Connector" URL field. Unlike stdio mode, multiple StudyLife users can share one
-running server: each person logs in with their own StudyLife MCP API key, and
-every access token is bound to that one account.
+running server: each person signs in with their own StudyLife account (passkey
+login + consent on StudyLife's own `/connect/mcp` page), and every access token
+is bound to that one account.
 
 1. In `.env`, in addition to `STUDYLIFE_BASE_URL` (`STUDYLIFE_API_KEY` is
    optional in HTTP mode, see [Configuration](#configuration)), set:
@@ -230,7 +234,7 @@ and a real Tailscale-side incident hit along the way.
 | Variable | Description |
 |---|---|
 | `STUDYLIFE_BASE_URL` | Base URL of your StudyLife instance, e.g. `https://studylife.example.com/` (or a cluster-internal address in HTTP mode) - what this server itself calls, both for tool calls and the connect-flow assertion exchange. |
-| `STUDYLIFE_API_KEY` | API key from StudyLife's setup page, sent as the `X-Api-Key` header. Required for stdio mode (the single account it always runs as). Optional in HTTP mode - each caller resolves to their own account via the connect flow instead, and `StudyLifeClientResolver` fails closed rather than falling back to this key for an unauthenticated caller. |
+| `STUDYLIFE_API_KEY` | MCP API key, sent as the `X-Api-Key` header - obtained via `studylife-mcp-login` (see Setup). Required for stdio mode (the single account it always runs as). Optional in HTTP mode - each caller resolves to their own account via the connect flow instead, and `StudyLifeClientResolver` fails closed rather than falling back to this key for an unauthenticated caller. |
 | `MCP_PUBLIC_URL` | *(HTTP mode only)* Externally reachable base URL of this server, behind your reverse proxy. Used as both the OAuth `issuer_url` and `resource_server_url`, and to build this server's own `/auth/studylife/callback` URL. |
 | `STUDYLIFE_CONNECT_URL` | *(HTTP mode only)* StudyLife's own public/browser-facing base URL. The OAuth `authorize()` step redirects the user's browser here (`/connect/mcp`) to log in and consent - distinct from `STUDYLIFE_BASE_URL`, which the browser never talks to. |
 | `MCP_TOKEN_ENCRYPTION_KEY` | *(HTTP mode only)* Fernet key encrypting each user's StudyLife API key at rest in the OAuth store. |
