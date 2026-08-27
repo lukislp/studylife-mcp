@@ -1,4 +1,4 @@
-import threading
+﻿import threading
 from pathlib import Path
 from urllib.parse import parse_qs, urlencode, urlparse
 
@@ -256,7 +256,7 @@ def test_run_login_missing_assertion_reported(
     assert not (tmp_path / ".env").exists()
     err = capsys.readouterr().err
     assert "assertion" in err.lower()
-    assert "<StudyLife release TBD" in err
+    assert "lukislp/studylife#97" in err
 
 
 def test_run_login_timeout_when_browser_never_calls_back(
