@@ -1,4 +1,4 @@
-﻿import threading
+import threading
 from pathlib import Path
 from urllib.parse import parse_qs, urlencode, urlparse
 
