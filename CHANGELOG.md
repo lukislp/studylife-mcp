@@ -1,3 +1,10 @@
+# [1.13.0](https://github.com/lukislp/studylife-mcp/compare/v1.12.2...v1.13.0) (2026-08-27)
+
+
+### Features
+
+* browser login bootstrap for stdio ([bc1e210](https://github.com/lukislp/studylife-mcp/commit/bc1e2103993a09292c75ea497c5ecd0917286971)), closes [studylife#97](https://github.com/studylife/issues/97)
+
 ## [1.12.2](https://github.com/lukislp/studylife-mcp/compare/v1.12.1...v1.12.2) (2026-08-26)
 
 
