@@ -1,3 +1,11 @@
+## [1.13.2](https://github.com/lukislp/studylife-mcp/compare/v1.13.1...v1.13.2) (2026-08-27)
+
+
+### Bug Fixes
+
+* release chain checks out branch tip to survive [skip ci] bump races ([c61c1c6](https://github.com/lukislp/studylife-mcp/commit/c61c1c6df3c0dffc6bc003985b22184fd79db019))
+* retrigger release chain (merge push of [#14](https://github.com/lukislp/studylife-mcp/issues/14) spawned no workflow run) ([dbd5615](https://github.com/lukislp/studylife-mcp/commit/dbd5615d347a7a1c62a72f1421ea71a41c3b1f23))
+
 ## [1.13.1](https://github.com/lukislp/studylife-mcp/compare/v1.13.0...v1.13.1) (2026-08-27)
 
 
