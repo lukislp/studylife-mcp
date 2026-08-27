@@ -1,3 +1,10 @@
+## [1.13.1](https://github.com/lukislp/studylife-mcp/compare/v1.13.0...v1.13.1) (2026-08-27)
+
+
+### Bug Fixes
+
+* update README for the removed Setup-page MCP card ([456fe59](https://github.com/lukislp/studylife-mcp/commit/456fe59adc374df695c119acae488020dfcee609))
+
 # [1.13.0](https://github.com/lukislp/studylife-mcp/compare/v1.12.2...v1.13.0) (2026-08-27)
 
 
