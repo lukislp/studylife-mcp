@@ -275,3 +275,18 @@ Log of notable decisions: what was decided, alternatives considered, and why. Ma
 - **Why grouped as one entry:** six independent, low-severity findings from the same audit pass, not one coherent feature - grouped to avoid six near-identical entries, not because they share a root cause or touch the same code path.
 - **The revoke form's `session_id` form-field fallback was kept deliberately, alongside the cookie:** new pages never render that field (only the CSRF token and `client_id` are hidden inputs now), but a browser tab left open across a deploy - still showing the *previous* server's rendered page with the old hidden `session_id` field and no cookie set - can still successfully revoke through it. A narrow, explicit compatibility shim for that one in-flight-deploy scenario, not the normal path.
 - **Verified:** `ruff check`, `ruff format --check`, and `mypy src` all clean; `pytest` - 145 tests total (up from 143 pre-batch), covering: expired-token/code local rejection and grace-period purge semantics for all three tables, periodic-sweep coverage, connected-apps all-expired/partial-expired/no-expiry-outranks ranking, cookie-transition mechanics and cookie attributes, CSRF accept/missing/wrong-token/end-to-end-with-the-actually-rendered-token, hashed rate-limit keys, and bucket pruning under an aged-out vs. still-live window. Not yet verified against the live k8s deployment or a real browser session - built and tested against the local SQLite-backed test suite only, per the task's instruction to leave this branch uncommitted/unmerged.
+
+## 2026-08-27 - Browser login bootstrap for stdio (`studylife-mcp-login`)
+
+stdio users no longer need to generate and paste a key from the StudyLife setup page: the new
+`studylife-mcp-login` console script (own entrypoint rather than a subcommand, matching the
+existing `studylife-mcp`/`studylife-mcp-http` naming) opens the browser on StudyLife's
+`/connect/mcp` consent page with an RFC 8252 loopback `redirect_uri` (ephemeral port on
+127.0.0.1), receives the single-use assertion on a local listener, exchanges it and writes
+`STUDYLIFE_API_KEY` into `.env` idempotently - the key is never printed. Requires the StudyLife
+release containing the loopback redirect exception. Two design calls worth recording: the
+exchange client was split into a verbose variant raising `AssertionExchangeError` with the
+server's real message (the CLI must explain WHY a login failed) while the OAuth callback path
+keeps the swallowing wrapper; and the tests drive a REAL loopback listener (stubbed browser
+fires the redirect from a thread) instead of mocking the HTTP server, with
+`respx.route(host="127.0.0.1").pass_through()` so the mock layer doesn't eat the local call.
