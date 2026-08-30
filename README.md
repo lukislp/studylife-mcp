@@ -112,15 +112,30 @@ request isn't properly authenticated â€” see [docs/decisions.md](docs/decis
 
 ## Setup: Claude Desktop (stdio, single StudyLife account)
 
-1. Copy `.env.example` to `.env` and set `STUDYLIFE_BASE_URL` to your StudyLife
+1. Install it, one of two ways:
+
+   - **From PyPI (recommended for just using it):**
+
+     ```bash
+     pip install studylife-mcp
+     ```
+
+     (or `pipx install studylife-mcp` to keep it in its own isolated environment)
+   - **From source (for development):** clone this repo, then `uv sync`. Replace
+     `studylife-mcp`/`studylife-mcp-login` below with `uv run studylife-mcp`/
+     `uv run studylife-mcp-login` (run from the repo directory).
+
+2. Copy `.env.example` to `.env` and set `STUDYLIFE_BASE_URL` to your StudyLife
    instance URL. Leave `STUDYLIFE_API_KEY` unset for now â€” the next step fills it in.
-2. Install dependencies: `uv sync`
+   (A PyPI install has no repo directory to hold this file - either `cd` somewhere
+   of your choosing first, or pass `--env-file /absolute/path/to/.env` in the next
+   step and reference that same path in the Claude Desktop config's `env` block below.)
 3. Log in and get an MCP API key. Two ways to do this:
 
    - **Browser login (recommended):** run
 
      ```bash
-     uv run studylife-mcp-login
+     studylife-mcp-login
      ```
 
      This opens your browser to StudyLife's own login/consent page
@@ -144,16 +159,35 @@ request isn't properly authenticated â€” see [docs/decisions.md](docs/decis
 
 4. Add to your Claude Desktop config (`claude_desktop_config.json`):
 
-   ```json
-   {
-     "mcpServers": {
-       "studylife": {
-         "command": "uv",
-         "args": ["run", "--directory", "/absolute/path/to/studylife-mcp", "studylife-mcp"]
+   - **PyPI install** - `studylife-mcp` is already on `PATH`, but there's no
+     project directory for it to find a `.env` in, so pass the two settings
+     directly:
+
+     ```json
+     {
+       "mcpServers": {
+         "studylife": {
+           "command": "studylife-mcp",
+           "env": {
+             "STUDYLIFE_BASE_URL": "https://studylife.example.com",
+             "STUDYLIFE_API_KEY": "the-key-from-step-3"
+           }
+         }
        }
      }
-   }
-   ```
+     ```
+   - **From-source install** - reads `.env` from the repo directory instead:
+
+     ```json
+     {
+       "mcpServers": {
+         "studylife": {
+           "command": "uv",
+           "args": ["run", "--directory", "/absolute/path/to/studylife-mcp", "studylife-mcp"]
+         }
+       }
+     }
+     ```
 
    Where to find that file depends on how Claude Desktop was installed:
    - Classic installer: `%APPDATA%\Claude\claude_desktop_config.json` (Windows) /
