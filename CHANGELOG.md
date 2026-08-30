@@ -1,3 +1,10 @@
+## [1.13.3](https://github.com/lukislp/studylife-mcp/compare/v1.13.2...v1.13.3) (2026-08-30)
+
+
+### Bug Fixes
+
+* derive package version from git tags via hatch-vcs ([3ff4d5f](https://github.com/lukislp/studylife-mcp/commit/3ff4d5f9c77045a28cc87ae8ca346c4835a00edb))
+
 ## [1.13.2](https://github.com/lukislp/studylife-mcp/compare/v1.13.1...v1.13.2) (2026-08-27)
 
 
