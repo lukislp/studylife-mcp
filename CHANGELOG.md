@@ -1,3 +1,10 @@
+## [1.13.4](https://github.com/lukislp/studylife-mcp/compare/v1.13.3...v1.13.4) (2026-08-30)
+
+
+### Bug Fixes
+
+* pass the release version into the Docker build for hatch-vcs ([b6b4b4f](https://github.com/lukislp/studylife-mcp/commit/b6b4b4f154c8d54e86b93f7533e9bed3c48d7834))
+
 ## [1.13.3](https://github.com/lukislp/studylife-mcp/compare/v1.13.2...v1.13.3) (2026-08-30)
 
 
