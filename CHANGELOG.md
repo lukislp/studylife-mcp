@@ -1,3 +1,10 @@
+# [1.14.0](https://github.com/lukislp/studylife-mcp/compare/v1.13.4...v1.14.0) (2026-08-30)
+
+
+### Features
+
+* publish to PyPI via trusted publishing (OIDC) ([0b19eb1](https://github.com/lukislp/studylife-mcp/commit/0b19eb1ea73177647529069947bbbf8e17a0c6a7))
+
 ## [1.13.4](https://github.com/lukislp/studylife-mcp/compare/v1.13.3...v1.13.4) (2026-08-30)
 
 
