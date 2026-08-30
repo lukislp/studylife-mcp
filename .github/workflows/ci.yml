@@ -288,3 +288,23 @@ jobs:
             @semantic-release/git@11.0.1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  publish-pypi:
+    needs: [get-version, semantic-release]
+    if: github.event_name == 'push' && needs.get-version.outputs.published == 'true'
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write # trusted publishing (OIDC) - no PyPI token/secret needed
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          ref: main
+          fetch-depth: 0 # full history + tags, so hatch-vcs can find the tag just created
+      - uses: astral-sh/setup-uv@v9.0.0
+        with:
+          version: "0.5.8"
+          cache-suffix: "publish"
+      - run: uv python install 3.12
+      - run: uv build
+      - uses: pypa/gh-action-pypi-publish@release/v1
