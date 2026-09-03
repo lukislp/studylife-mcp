@@ -1,3 +1,10 @@
+## [1.14.1](https://github.com/lukislp/studylife-mcp/compare/v1.14.0...v1.14.1) (2026-09-03)
+
+
+### Bug Fixes
+
+* **ci:** add Dependabot for github-actions, uv, docker ([27c594a](https://github.com/lukislp/studylife-mcp/commit/27c594aa079c900073c9c3f70ed4b63ce3ad8c38))
+
 # [1.14.0](https://github.com/lukislp/studylife-mcp/compare/v1.13.4...v1.14.0) (2026-08-30)
 
 
