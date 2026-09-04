@@ -1,3 +1,12 @@
+## [1.14.2](https://github.com/lukislp/studylife-mcp/compare/v1.14.1...v1.14.2) (2026-09-04)
+
+
+### Bug Fixes
+
+* **ci:** bump aquasecurity/trivy-action ([b5ed94e](https://github.com/lukislp/studylife-mcp/commit/b5ed94ee24846d94f030baff325509a4bc8c17c9))
+* **ci:** bump astral-sh/setup-uv from 9.0.0 to 10.0.1 ([305ec9f](https://github.com/lukislp/studylife-mcp/commit/305ec9fe42be163b6339f4b2df36ba9b02cbe1c9))
+* **ci:** bump docker/setup-buildx-action from 4.2.0 to 4.3.0 ([be437ab](https://github.com/lukislp/studylife-mcp/commit/be437abf7bed2eb72c75a4d5700eb11ee6f7183a))
+
 ## [1.14.1](https://github.com/lukislp/studylife-mcp/compare/v1.14.0...v1.14.1) (2026-09-03)
 
 
