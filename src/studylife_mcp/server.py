@@ -14,7 +14,7 @@ from studylife_mcp.audit import audited
 from studylife_mcp.client_resolver import StudyLifeClientResolver
 from studylife_mcp.config import Settings
 from studylife_mcp.metrics import REGISTERED_CLIENTS, render_latest
-from studylife_mcp.models import Course, CourseGoal, Note, Session
+from studylife_mcp.models import Course, CourseGoal, Note, Session, configure_server_timezone
 from studylife_mcp.oauth_provider import SCOPE, StudyLifeOAuthProvider, register_oauth_routes
 from studylife_mcp.oauth_store import OAuthStore
 from studylife_mcp.rate_limit import McpCallRateLimitMiddleware, RegistrationRateLimitMiddleware
@@ -31,6 +31,8 @@ logging.basicConfig(
 # type checking. studylife_api_key is genuinely optional at this layer (see config.py);
 # main() enforces it below for stdio mode specifically.
 _settings = Settings()  # type: ignore[call-arg]
+# Naive server timestamps get this zone attached so tool output is valid RFC 3339 (models.py).
+configure_server_timezone(_settings.studylife_timezone)
 
 # S4: Streamable HTTP transport + OAuth 2.1, only wired in when all three settings below
 # are configured - a stdio-only .env (S1-S3) never touches any of this. See

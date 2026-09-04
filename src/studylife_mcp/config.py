@@ -9,6 +9,11 @@ class Settings(BaseSettings):
 
     studylife_base_url: HttpUrl
 
+    # IANA zone the StudyLife server's naive wall-clock timestamps are expressed in (the
+    # server runs with TZ=Europe/Berlin and serializes DateTime without an offset); the
+    # models attach it so tool output is valid RFC 3339, see models.StudyLifeModel.
+    studylife_timezone: str = "Europe/Berlin"
+
     # Required only for stdio mode (main() checks this explicitly) - it's the single
     # account stdio always runs as. Optional here because HTTP mode no longer needs a
     # fallback account: StudyLifeClientResolver fails closed instead of falling back to

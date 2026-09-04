@@ -1,7 +1,24 @@
 from datetime import datetime
+from zoneinfo import ZoneInfo
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from pydantic.alias_generators import to_camel
+
+# The StudyLife server stores and serializes wall-clock times in its own local time zone
+# WITHOUT an offset ("2026-09-04T18:00:00"). That is fine for the app, but the tool output
+# schema declares these fields as JSON Schema `date-time`, i.e. RFC 3339, which requires an
+# offset - and MCP clients validate structured tool output against that schema, so every
+# list_sessions/list_notes call failed with "startTime must match format date-time"
+# (2026-09-05). Attaching the server's zone turns the values into valid, unambiguous
+# timestamps; already-aware values (a future server sending offsets) are left alone.
+_server_timezone = ZoneInfo("Europe/Berlin")
+
+
+def configure_server_timezone(name: str) -> None:
+    """Set the zone the StudyLife server's naive timestamps are expressed in
+    (Settings.studylife_timezone; main() calls this once at startup)."""
+    global _server_timezone
+    _server_timezone = ZoneInfo(name)
 
 
 class StudyLifeModel(BaseModel):
@@ -10,6 +27,13 @@ class StudyLifeModel(BaseModel):
     keeps snake_case kwargs usable too (e.g. in tests)."""
 
     model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    @model_validator(mode="after")
+    def _attach_server_timezone(self) -> "StudyLifeModel":
+        for name, value in list(self.__dict__.items()):
+            if isinstance(value, datetime) and value.tzinfo is None:
+                setattr(self, name, value.replace(tzinfo=_server_timezone))
+        return self
 
 
 class Course(StudyLifeModel):
