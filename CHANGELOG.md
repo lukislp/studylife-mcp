@@ -1,3 +1,10 @@
+## [1.14.4](https://github.com/lukislp/studylife-mcp/compare/v1.14.3...v1.14.4) (2026-09-04)
+
+
+### Bug Fixes
+
+* **deps:** bump pydantic, mcp and cryptography ([b2326f2](https://github.com/lukislp/studylife-mcp/commit/b2326f285884f5e478f600de4aea766078af1a40)), closes [#23](https://github.com/lukislp/studylife-mcp/issues/23) [#24](https://github.com/lukislp/studylife-mcp/issues/24) [#25](https://github.com/lukislp/studylife-mcp/issues/25)
+
 ## [1.14.3](https://github.com/lukislp/studylife-mcp/compare/v1.14.2...v1.14.3) (2026-09-04)
 
 
