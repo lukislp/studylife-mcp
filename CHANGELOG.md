@@ -1,3 +1,11 @@
+## [1.14.3](https://github.com/lukislp/studylife-mcp/compare/v1.14.2...v1.14.3) (2026-09-04)
+
+
+### Bug Fixes
+
+* emit RFC 3339 timestamps in tool output ([3115340](https://github.com/lukislp/studylife-mcp/commit/31153400880eeacba8c257349c2d80b483c80c33))
+* keep the committed lockfile format ([ab746e0](https://github.com/lukislp/studylife-mcp/commit/ab746e05802f9a79dd33684a44ab33fab53a76de))
+
 ## [1.14.2](https://github.com/lukislp/studylife-mcp/compare/v1.14.1...v1.14.2) (2026-09-04)
 
 
