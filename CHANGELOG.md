@@ -1,3 +1,10 @@
+## [1.14.5](https://github.com/lukislp/studylife-mcp/compare/v1.14.4...v1.14.5) (2026-09-04)
+
+
+### Bug Fixes
+
+* **ci:** ignore base image major bumps in Dependabot ([187c2e7](https://github.com/lukislp/studylife-mcp/commit/187c2e7446cf8696bc74aeb95c49b7ee85e55125))
+
 ## [1.14.4](https://github.com/lukislp/studylife-mcp/compare/v1.14.3...v1.14.4) (2026-09-04)
 
 
