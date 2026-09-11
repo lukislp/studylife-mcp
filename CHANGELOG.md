@@ -1,3 +1,10 @@
+## [1.14.6](https://github.com/lukislp/studylife-mcp/compare/v1.14.5...v1.14.6) (2026-09-11)
+
+
+### Bug Fixes
+
+* **ci:** push release commits as a deploy key so the default branch can be ruleset-protected ([3cc08fe](https://github.com/lukislp/studylife-mcp/commit/3cc08fe89e7a75f9c43dc4bbdacaa069885b1eb8))
+
 ## [1.14.5](https://github.com/lukislp/studylife-mcp/compare/v1.14.4...v1.14.5) (2026-09-04)
 
 
