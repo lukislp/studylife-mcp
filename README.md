@@ -1,6 +1,6 @@
 ﻿# studylife-mcp
 
-[![CI](https://github.com/lukislp/studylife-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/lukislp/studylife-mcp/actions/workflows/ci.yml)
+[![CI](https://github.com/lukislp/studylife-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/lukislp/studylife-mcp/actions/workflows/ci.yml) [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/lukislp/studylife-mcp/badge)](https://scorecard.dev/viewer/?uri=github.com/lukislp/studylife-mcp) [![CodeQL](https://github.com/lukislp/studylife-mcp/actions/workflows/github-code-scanning/codeql/badge.svg)](https://github.com/lukislp/studylife-mcp/security/code-scanning)
 [![Release](https://img.shields.io/github/v/release/lukislp/studylife-mcp)](https://github.com/lukislp/studylife-mcp/releases)
 [![License: AGPL-3.0](https://img.shields.io/github/license/lukislp/studylife-mcp)](LICENSE)
 [![Python](https://img.shields.io/badge/Python-3.12-3776AB)](https://www.python.org/)
