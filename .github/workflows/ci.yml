@@ -16,6 +16,11 @@ concurrency:
 env:
   IMAGE: ghcr.io/lukislp/studylife-mcp
 
+# Least-privilege default for GITHUB_TOKEN (CodeQL actions/missing-workflow-permissions):
+# jobs that need more declare it themselves.
+permissions:
+  contents: read
+
 jobs:
   lint:
     runs-on: ubuntu-latest
