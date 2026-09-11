@@ -1,3 +1,10 @@
+## [1.14.8](https://github.com/lukislp/studylife-mcp/compare/v1.14.7...v1.14.8) (2026-09-11)
+
+
+### Bug Fixes
+
+* **deps:** bump httpx2 to 2.12.0 ([#38](https://github.com/lukislp/studylife-mcp/issues/38)) ([a89104f](https://github.com/lukislp/studylife-mcp/commit/a89104f784b73771f02cebeb8f674d27d77edd4b)), closes [#31](https://github.com/lukislp/studylife-mcp/issues/31)
+
 ## [1.14.7](https://github.com/lukislp/studylife-mcp/compare/v1.14.6...v1.14.7) (2026-09-11)
 
 
