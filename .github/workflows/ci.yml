@@ -48,14 +48,6 @@ jobs:
       - run: uv sync --frozen
       - run: uv run pytest
 
-  # Contract tests (audit D2, consumer side): studylife-mcp hand-mirrors StudyLife's
-  # DTOs (models.py) and hand-codes the endpoints it calls (client.py) instead of
-  # generating either from studylife's committed OpenAPI spec - this diffs the
-  # mirrored surface against that spec so drift fails CI instead of surfacing as a
-  # runtime ValidationError. Separate job (not folded into `test` above) so a
-  # spec-fetch failure is unambiguous in the Actions UI rather than mixed in with
-  # unit test output. See tests/test_openapi_contract.py for the unreachable-spec
-  # handling (fails here in CI; skips for local-offline dev).
   # Coverage-guided fuzzing of the DTO models and the rate-limit bucket keys (fuzz/): a short
   # fixed budget per run, enough to catch a crash on the next code change.
   fuzz:
@@ -69,6 +61,14 @@ jobs:
       - run: uv sync --frozen --group fuzz
       - run: uv run python fuzz/fuzz_models_and_keys.py -max_total_time=30 -rss_limit_mb=1024
 
+  # Contract tests (audit D2, consumer side): studylife-mcp hand-mirrors StudyLife's
+  # DTOs (models.py) and hand-codes the endpoints it calls (client.py) instead of
+  # generating either from studylife's committed OpenAPI spec - this diffs the
+  # mirrored surface against that spec so drift fails CI instead of surfacing as a
+  # runtime ValidationError. Separate job (not folded into `test` above) so a
+  # spec-fetch failure is unambiguous in the Actions UI rather than mixed in with
+  # unit test output. See tests/test_openapi_contract.py for the unreachable-spec
+  # handling (fails here in CI; skips for local-offline dev).
   contract-test:
     runs-on: ubuntu-latest
     steps:
@@ -155,7 +155,7 @@ jobs:
     # a build/push failure here never leaves an orphaned, un-tagged GHCR image blocking
     # every future release via the duplicate-tag guard below.
     needs: [get-version, semantic-release]
-    if: github.event_name == 'push' && needs.semantic-release.outputs.published == 'true'
+    if: github.event_name == 'push' && needs.get-version.outputs.published == 'true'
     strategy:
       fail-fast: true
       matrix:
@@ -171,7 +171,7 @@ jobs:
       contents: read
       packages: write
     env:
-      NEXT_VERSION: ${{ needs.semantic-release.outputs.version }}
+      NEXT_VERSION: ${{ needs.get-version.outputs.next_version }}
     steps:
       # ref: main to match get-version's analysis target - the artifact stamped with the next
       # version must be built from the same tree that version was computed for, not from an
@@ -223,8 +223,8 @@ jobs:
           retention-days: 1
 
   docker-manifest-merge:
-    needs: [get-version, semantic-release, docker]
-    if: github.event_name == 'push' && needs.semantic-release.outputs.published == 'true'
+    needs: [get-version, docker]
+    if: github.event_name == 'push' && needs.get-version.outputs.published == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -232,7 +232,7 @@ jobs:
       # OIDC token for Sigstore keyless signing (cosign sign below) - no key material anywhere.
       id-token: write
     env:
-      NEXT_VERSION: ${{ needs.semantic-release.outputs.version }}
+      NEXT_VERSION: ${{ needs.get-version.outputs.next_version }}
     steps:
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
@@ -334,14 +334,14 @@ jobs:
           exit 1
 
   trivy:
-    needs: [get-version, semantic-release, docker-manifest-merge]
-    if: github.event_name == 'push' && needs.semantic-release.outputs.published == 'true'
+    needs: [get-version, docker-manifest-merge]
+    if: github.event_name == 'push' && needs.get-version.outputs.published == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: read
     env:
-      NEXT_VERSION: ${{ needs.semantic-release.outputs.version }}
+      NEXT_VERSION: ${{ needs.get-version.outputs.next_version }}
     steps:
       - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
