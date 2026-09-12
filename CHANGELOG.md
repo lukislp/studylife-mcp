@@ -1,3 +1,10 @@
+## [1.14.9](https://github.com/lukislp/studylife-mcp/compare/v1.14.8...v1.14.9) (2026-09-12)
+
+
+### Bug Fixes
+
+* **ci:** bump the deployment image tag from the pipeline instead of Flux ([#40](https://github.com/lukislp/studylife-mcp/issues/40)) ([1ccf55a](https://github.com/lukislp/studylife-mcp/commit/1ccf55ae8a295f85e114e1a7aad49a7a88566ee2))
+
 ## [1.14.8](https://github.com/lukislp/studylife-mcp/compare/v1.14.7...v1.14.8) (2026-09-11)
 
 
