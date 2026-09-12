@@ -35,3 +35,8 @@ htmlcov/
 
 # Claude Code local session state
 .claude/
+
+# libFuzzer crash artifacts written by fuzz/ harnesses
+crash-*
+leak-*
+timeout-*

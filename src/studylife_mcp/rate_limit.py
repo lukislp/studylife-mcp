@@ -148,10 +148,16 @@ class McpCallRateLimitMiddleware(RateLimitMiddleware):
 
 
 def client_ip_key(request: Request) -> str:
-    forwarded = request.headers.get("x-forwarded-for")
-    if forwarded:
-        return forwarded.split(",")[0].strip()
-    return request.client.host if request.client else "unknown"
+    """Never empty: an X-Forwarded-For of "," or " " used to yield "" as the bucket key, so
+    every such request shared one anonymous bucket instead of its real client's (found by
+    fuzz/fuzz_models_and_keys.py)."""
+    forwarded = request.headers.get("x-forwarded-for", "")
+    first_hop = forwarded.split(",")[0].strip()
+    if first_hop:
+        return first_hop
+    if request.client and request.client.host:
+        return request.client.host
+    return "unknown"
 
 
 def bearer_token_key(request: Request) -> str:
