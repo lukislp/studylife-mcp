@@ -56,6 +56,19 @@ jobs:
   # spec-fetch failure is unambiguous in the Actions UI rather than mixed in with
   # unit test output. See tests/test_openapi_contract.py for the unreachable-spec
   # handling (fails here in CI; skips for local-offline dev).
+  # Coverage-guided fuzzing of the DTO models and the rate-limit bucket keys (fuzz/): a short
+  # fixed budget per run, enough to catch a crash on the next code change.
+  fuzz:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          version: "0.5.8"
+      - run: uv python install 3.12
+      - run: uv sync --frozen --group fuzz
+      - run: uv run python fuzz/fuzz_models_and_keys.py -max_total_time=30 -rss_limit_mb=1024
+
   contract-test:
     runs-on: ubuntu-latest
     steps:
