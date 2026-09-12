@@ -1,3 +1,10 @@
+## [1.14.11](https://github.com/lukislp/studylife-mcp/compare/v1.14.10...v1.14.11) (2026-09-12)
+
+
+### Bug Fixes
+
+* **ci:** gate the docker chain on get-version like the sibling pipelines ([#50](https://github.com/lukislp/studylife-mcp/issues/50)) ([c72ffb5](https://github.com/lukislp/studylife-mcp/commit/c72ffb5907926aa7ee25e27ae5513e066f75b630))
+
 ## [1.14.10](https://github.com/lukislp/studylife-mcp/compare/v1.14.9...v1.14.10) (2026-09-12)
 
 
