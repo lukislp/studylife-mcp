@@ -1,3 +1,10 @@
+## [1.14.10](https://github.com/lukislp/studylife-mcp/compare/v1.14.9...v1.14.10) (2026-09-12)
+
+
+### Bug Fixes
+
+* **rate-limit:** never bucket a request under an empty client key ([#48](https://github.com/lukislp/studylife-mcp/issues/48)) ([765eb67](https://github.com/lukislp/studylife-mcp/commit/765eb67bc9e78ebe48650a7a01ec1bb8dc64e241))
+
 ## [1.14.9](https://github.com/lukislp/studylife-mcp/compare/v1.14.8...v1.14.9) (2026-09-12)
 
 
