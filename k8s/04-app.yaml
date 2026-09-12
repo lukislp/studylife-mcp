@@ -50,7 +50,7 @@ spec:
         seccompProfile: {type: RuntimeDefault}
       containers:
         - name: studylife-mcp
-          image: ghcr.io/lukislp/studylife-mcp:1.14.9 # set by the deploy-bump job (CI) on every release
+          image: ghcr.io/lukislp/studylife-mcp:1.14.10 # set by the deploy-bump job (CI) on every release
           securityContext:
             allowPrivilegeEscalation: false
             capabilities: {drop: ["ALL"]}
