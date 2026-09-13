@@ -1,3 +1,11 @@
+## [1.14.15](https://github.com/lukislp/studylife-mcp/compare/v1.14.14...v1.14.15) (2026-09-13)
+
+
+### Bug Fixes
+
+* **k8s:** close the open egress hole in this namespace ([#60](https://github.com/lukislp/studylife-mcp/issues/60)) ([d1b3e70](https://github.com/lukislp/studylife-mcp/commit/d1b3e700aef9cb3d8bc923acd4fe11b3634ee010))
+* **k8s:** read-only root filesystem for studylife-mcp ([#59](https://github.com/lukislp/studylife-mcp/issues/59)) ([8cfd74d](https://github.com/lukislp/studylife-mcp/commit/8cfd74d474aab375a2c6a5b74641692ae5d78d28))
+
 ## [1.14.14](https://github.com/lukislp/studylife-mcp/compare/v1.14.13...v1.14.14) (2026-09-13)
 
 
