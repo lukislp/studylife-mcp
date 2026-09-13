@@ -1,7 +1,13 @@
 # Dedicated namespace, isolated from studylife-scale/studylife-ai - same convention as
-# studylife-ai's own k8s/00-namespace.yaml. Pod Security Standards: "baseline" hard-enforced
-# (no hostPath/hostNetwork/privileged needed - PVC/ConfigMap/Secret only), "restricted" as
-# warn/audit only.
+# studylife-ai's own k8s/00-namespace.yaml.
+# Pod Security Standards: "restricted" hard-enforced - upgraded from "baseline", which bought
+# nothing here: the deployment already runs as a fixed non-root uid with fsGroup, drops ALL
+# capabilities, sets allowPrivilegeEscalation:false and a RuntimeDefault seccomp profile.
+# Verified before the upgrade with "kubectl label --dry-run=server --overwrite ns studylife-mcp
+# pod-security.kubernetes.io/enforce=restricted", which reported no violating pod (enforce
+# gates only NEW pods, so it cannot evict anything already running). warn/audit stay on
+# "restricted" so a future workload needing a looser level surfaces instead of silently
+# weakening the namespace.
 #
 # NOT applied via Flux: kustomize-controller's least-privilege ClusterRole (studylife repo's
 # k8s/flux/06-reconciler-rbac.yaml) grants no permission on the "namespaces" resource at all -
@@ -12,7 +18,7 @@ kind: Namespace
 metadata:
   name: studylife-mcp
   labels:
-    pod-security.kubernetes.io/enforce: baseline
+    pod-security.kubernetes.io/enforce: restricted
     pod-security.kubernetes.io/warn: restricted
     pod-security.kubernetes.io/audit: restricted
 ---
