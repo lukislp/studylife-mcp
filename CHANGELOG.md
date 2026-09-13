@@ -1,3 +1,10 @@
+## [1.14.17](https://github.com/lukislp/studylife-mcp/compare/v1.14.16...v1.14.17) (2026-09-13)
+
+
+### Bug Fixes
+
+* **k8s:** seal studylife-mcp-secrets so it survives a cluster rebuild ([#62](https://github.com/lukislp/studylife-mcp/issues/62)) ([2c7f10b](https://github.com/lukislp/studylife-mcp/commit/2c7f10b4b15a531e6881f1122274135749386aa4))
+
 ## [1.14.16](https://github.com/lukislp/studylife-mcp/compare/v1.14.15...v1.14.16) (2026-09-13)
 
 
