@@ -1,3 +1,10 @@
+## [1.14.13](https://github.com/lukislp/studylife-mcp/compare/v1.14.12...v1.14.13) (2026-09-13)
+
+
+### Bug Fixes
+
+* **docker:** apply Debian security updates at build time ([#57](https://github.com/lukislp/studylife-mcp/issues/57)) ([12d61c5](https://github.com/lukislp/studylife-mcp/commit/12d61c5e38ef171fc8b0525d7f61cfb03fe07ec9))
+
 ## [1.14.12](https://github.com/lukislp/studylife-mcp/compare/v1.14.11...v1.14.12) (2026-09-13)
 
 
