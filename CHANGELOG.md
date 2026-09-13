@@ -1,3 +1,10 @@
+## [1.14.16](https://github.com/lukislp/studylife-mcp/compare/v1.14.15...v1.14.16) (2026-09-13)
+
+
+### Bug Fixes
+
+* **k8s:** give probes a 5s timeout so load spikes stop killing pods ([#61](https://github.com/lukislp/studylife-mcp/issues/61)) ([5bf7a21](https://github.com/lukislp/studylife-mcp/commit/5bf7a212145626129c52051aa601d47d85e259b0))
+
 ## [1.14.15](https://github.com/lukislp/studylife-mcp/compare/v1.14.14...v1.14.15) (2026-09-13)
 
 
