@@ -1,3 +1,10 @@
+## [1.14.14](https://github.com/lukislp/studylife-mcp/compare/v1.14.13...v1.14.14) (2026-09-13)
+
+
+### Bug Fixes
+
+* **k8s:** add explicit egress policy for the server pod ([#58](https://github.com/lukislp/studylife-mcp/issues/58)) ([0cdb487](https://github.com/lukislp/studylife-mcp/commit/0cdb487860b96549dd2f9ca4459d14f78c78d88a))
+
 ## [1.14.13](https://github.com/lukislp/studylife-mcp/compare/v1.14.12...v1.14.13) (2026-09-13)
 
 
