@@ -1,3 +1,10 @@
+## [1.14.12](https://github.com/lukislp/studylife-mcp/compare/v1.14.11...v1.14.12) (2026-09-13)
+
+
+### Bug Fixes
+
+* **k8s:** raise the studylife-mcp namespace from PSS baseline to restricted ([#56](https://github.com/lukislp/studylife-mcp/issues/56)) ([9e2cd3c](https://github.com/lukislp/studylife-mcp/commit/9e2cd3cc772d386d0b97ab772a88019bd41a34e8))
+
 ## [1.14.11](https://github.com/lukislp/studylife-mcp/compare/v1.14.10...v1.14.11) (2026-09-12)
 
 
