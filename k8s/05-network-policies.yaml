@@ -91,3 +91,32 @@ spec:
 # k8s/12-network-policies.yaml (allow-studylife-mcp-to-web), not here. Metrics/liveness probes
 # from kubelet aren't subject to NetworkPolicy at all (they originate from the node, not a
 # pod), so k8s/04-app.yaml's probes need no allowance either.
+---
+# Egress for the server pod. Its only outbound dependency is StudyLife itself:
+# STUDYLIFE_BASE_URL = https://studylife-web.studylife-scale.svc.cluster.local
+# (k8s/01-config.yaml), used by every MCP tool call (client.py) and by the OAuth provider's
+# key check (oauth_provider._validate_studylife_key). NetworkPolicy matches the POD port, not
+# the Service port: studylife-scale's studylife-web Service maps 443 -> 8443 and 80 -> 8080,
+# so the HTTPS base URL above lands on container port 8443. 8080 is allowed alongside it so
+# switching the base URL to plain HTTP needs no further policy change.
+#
+# Nothing else is needed outbound: MCP_PUBLIC_URL/STUDYLIFE_CONNECT_URL are only ever
+# rendered into redirect URLs for the user's browser (server.py) - this pod never fetches
+# them - the OAuth state lives in a local SQLite file on the PVC, and the remote MCP clients
+# are pure INGRESS (Gateway / Tailscale funnel, allowed above). DNS is covered by allow-dns;
+# kubelet probes are not subject to NetworkPolicy at all.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: studylife-mcp-egress
+  namespace: studylife-mcp
+spec:
+  podSelector: { matchLabels: { app: studylife-mcp } }
+  policyTypes: ["Egress"]
+  egress:
+    - to:
+        - namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: studylife-scale } }
+          podSelector: { matchLabels: { app: studylife-web } }
+      ports:
+        - { protocol: TCP, port: 8080 }
+        - { protocol: TCP, port: 8443 }
