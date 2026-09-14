@@ -126,7 +126,7 @@ jobs:
         with:
           deploy-key: ${{ secrets.SEMANTIC_RELEASE_DEPLOY_KEY }}
       - id: semrel
-        uses: lukislp/ci-workflows/.github/actions/semantic-release@3a6bddb98c4fad7545c386a2cbaa4df36692ff4a # v1.2.3
+        uses: lukislp/ci-workflows/.github/actions/semantic-release@c6305937598d262117eca032e1365d4880a3fe53 # v1.4.1
         with:
           dry-run: true
           github-token: ${{ secrets.GITHUB_TOKEN }}
@@ -387,7 +387,7 @@ jobs:
         with:
           deploy-key: ${{ secrets.SEMANTIC_RELEASE_DEPLOY_KEY }}
       - id: semrel
-        uses: lukislp/ci-workflows/.github/actions/semantic-release@3a6bddb98c4fad7545c386a2cbaa4df36692ff4a # v1.2.3
+        uses: lukislp/ci-workflows/.github/actions/semantic-release@c6305937598d262117eca032e1365d4880a3fe53 # v1.4.1
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
         continue-on-error: true
@@ -412,7 +412,7 @@ jobs:
           git checkout -B main origin/main
       - id: semrel_retry
         if: steps.semrel.outputs.new_release_published != 'true'
-        uses: lukislp/ci-workflows/.github/actions/semantic-release@3a6bddb98c4fad7545c386a2cbaa4df36692ff4a # v1.2.3
+        uses: lukislp/ci-workflows/.github/actions/semantic-release@c6305937598d262117eca032e1365d4880a3fe53 # v1.4.1
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
