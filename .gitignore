@@ -33,7 +33,6 @@ htmlcov/
 .idea/
 .DS_Store
 
-# Claude Code local session state
 .claude/
 
 # libFuzzer crash artifacts written by fuzz/ harnesses
