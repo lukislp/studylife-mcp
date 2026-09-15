@@ -15,7 +15,7 @@ to Claude and other MCP clients. It provides:
 - **A self-built OAuth 2.1 authorization server** for the HTTP transport â€” dynamic client registration, PKCE, and a StudyLife-hosted connect flow (passkey login + consent, no API key to copy/paste) for identity, so multiple StudyLife users can share one deployment without ever seeing each other's data.
 - **A structured audit log** (tool, argument digest, outcome, duration) for every tool call, on both transports.
 
-This is a learning project and portfolio piece; design decisions and trade-offs
+Design decisions and the trade-offs behind them
 are logged in [docs/decisions.md](docs/decisions.md). Deliberately scoped
 narrower than its sister project [studylife-ai](https://github.com/lukislp/studylife-ai):
 no RAG, no agent loop â€” the MCP client (e.g. Claude) is the agent, this server
