@@ -1,144 +1,135 @@
-# Agent-Prompt: StudyLife MCP Server
+# Agent Instructions: StudyLife MCP Server
 
-> Als `CLAUDE.md` in die Repo-Root von `studylife-mcp` legen.
-> Die Copilot-Variante (`.github/copilot-instructions.md`) verweist auf diese Datei — sie ist die Single Source of Truth.
-> Basiert auf "Projekt 2: MCP-Server für StudyLife / Home Assistant" aus meinem Karriereplan —
-> Home Assistant wurde nachträglich aus dem Scope genommen (2026-08-13, siehe unten): HA bezieht
-> seine StudyLife-Daten selbst bereits per API-Abfrage gegen StudyLife, ist also kein eigenständiger
-> Datenlieferant für dieses Projekt.
+> The Copilot variant (`.github/copilot-instructions.md`) points at this file — it is the single source of truth.
+> Home Assistant was removed from the scope on 2026-08-13 (see below): HA already pulls its
+> StudyLife data itself through the StudyLife API, so it is not a separate data source for
+> this project.
 
 ---
 
-## Rolle und Kontext
+## Role and context
 
-Du bist mein Coding-Assistent für **studylife-mcp**, einen Model-Context-Protocol-Server,
-der meine self-hosted Plattform StudyLife (Blazor WASM + ASP.NET Core, .NET 10) für
-Claude und andere MCP-Clients verfügbar macht. Ich bin Data Engineer und B.Sc.-Student
-in Applied AI, mit Erfahrung in HACS-Integrationen. **Dieses Projekt ist Lernprojekt und Bewerbungs-Portfolio
-(Ziel: AI-Engineer-Rollen, u.a. Anthropic — MCP ist deren offener Standard; im
-Smart-Home-Bereich gibt es noch wenige gute MCP-Beispiele). Ich muss jede
-Kernentscheidung selbst verstehen und im Interview verteidigen können.** Deine Aufgabe
-ist es, mich schneller zu machen, ohne mir das Lernen abzunehmen.
+You are the coding assistant for **studylife-mcp**, a Model Context Protocol server that
+exposes the self-hosted StudyLife platform (Blazor WASM + ASP.NET Core, .NET 10) to Claude
+and other MCP clients. Your task is to speed up implementation without silently taking over
+the core design decisions listed below — those stay with the maintainer.
 
-Es existiert bereits ein Schwesterprojekt **studylife-ai** (github.com/lukislp/studylife-ai):
-FastAPI-RAG-Service mit LangGraph-Agent, RAGAS-Evals, k3s-Deployment. Dieses Repo hier ist
-bewusst **getrennt und schlanker**: kein RAG, kein eigener Agent-Loop — der MCP-Client
-(Claude) ist der Agent; wir exponieren nur sauber modellierte Tools und Resources.
+A sister project **studylife-ai** already exists (github.com/lukislp/studylife-ai):
+a FastAPI RAG service with a LangGraph agent, RAGAS evals and k3s deployment. This repository
+is deliberately **separate and leaner**: no RAG, no agent loop of its own — the MCP client
+(Claude) is the agent; we only expose cleanly modelled tools and resources.
 
-## Bekanntes Vorwissen (nicht raten — das ist verifiziert)
+## Verified background knowledge (do not guess — this is confirmed)
 
 **StudyLife:**
-- Auth für Integrationen über statischen **`X-Api-Key`-Header** (custom Middleware,
-  kein JWT/Identity). StudyLife speichert Keys **nur als Hash**.
-- Es gibt bereits zwei Key-Slots pro User: `ApiKeyHash` (Home Assistant) und
-  `AiApiKeyHash` (studylife-ai), jeweils mit Endpunkten unter `api/settings/…` und
-  Setup-Karte im UI. Ein Key ist immer an genau einen StudyLife-User gebunden.
-- Relevante Endpunkte: `GET /api/notes` (alle Notizen, keine Pagination),
-  `api/courses`, `api/sessions`; DTOs in `StudyLife.Shared/Dtos.cs`. **Kein
-  Swagger/OpenAPI** — bei Unklarheiten frage mich, ich schaue in den
-  StudyLife-Quellcode, statt dass du Annahmen triffst.
-- Notiz-Inhalte sind unstrukturierter Freitext (plain `<textarea>`).
+- Integrations authenticate through a static **`X-Api-Key` header** (custom middleware,
+  no JWT/Identity). StudyLife stores keys **as hashes only**.
+- There are already two key slots per user: `ApiKeyHash` (Home Assistant) and
+  `AiApiKeyHash` (studylife-ai), each with endpoints under `api/settings/…` and a
+  setup card in the UI. A key is always bound to exactly one StudyLife user.
+- Relevant endpoints: `GET /api/notes` (all notes, no pagination), `api/courses`,
+  `api/sessions`; DTOs live in `StudyLife.Shared/Dtos.cs`. **There is no
+  Swagger/OpenAPI** — when something is unclear, ask instead of assuming; the answer
+  comes from the StudyLife source code.
+- Note content is unstructured free text (plain `<textarea>`).
 
-## Das Projekt (Endausbau, gemäß Karriereplan Projekt 2, ohne Home Assistant)
+## The project (full scope, without Home Assistant)
 
-| Baustein | Inhalt |
+| Building block | Content |
 |---|---|
-| MCP-Server | Python MCP SDK, stdio-Transport (Claude Desktop) + Streamable HTTP |
-| Resources | Nur-Lese-Daten aus StudyLife: Notizen, Kurse, Sessions/Kalender, ECTS-/Lernfortschritt |
-| Tools | Schreibende Aktionen mit Whitelist: StudyLife-Session anlegen, Notiz anlegen. Nichts anderes. Keine Updates/Deletes — ausgeschlossen, nicht nur unimplementiert |
-| Sicherheit | Token-Auth, minimale Scopes, Audit-Log jeder Schreibaktion, destruktive Aktionen blockiert, Daten-vs-Instruktions-Grenzen für Freitext-Inhalte |
-| Tests | pytest + MCP-Inspector: Contract-Tests je Tool, Fehlerfälle, Timeout-Verhalten |
-| Packaging | Docker, HACS-Style-Doku, evtl. PyPI/uvx — installierbar für Dritte, Eintrag in MCP-Verzeichnisse |
+| MCP server | Python MCP SDK, stdio transport (Claude Desktop) + Streamable HTTP |
+| Resources | Read-only data from StudyLife: notes, courses, sessions/calendar, ECTS and study progress |
+| Tools | Write actions with a whitelist: create a StudyLife session, create a note. Nothing else. No updates or deletes — excluded, not merely unimplemented |
+| Security | Token auth, minimal scopes, audit log for every write action, destructive actions blocked, data-vs-instruction boundaries for free-text content |
+| Tests | pytest + MCP Inspector: contract tests per tool, error cases, timeout behaviour |
+| Packaging | Docker, HACS-style docs, possibly PyPI/uvx — installable by third parties, listed in MCP directories |
 
-## Architektur und Stack (festgelegt, nicht ändern ohne Rückfrage)
+## Architecture and stack (fixed, do not change without asking)
 
-Python 3.12 · uv · src-Layout · offizielles MCP Python SDK · httpx
-(typisierter Client für StudyLife, Pydantic-Modelle für DTOs) · Pydantic
-Settings + `.env` · strukturiertes Audit-Log pro Tool-Call (Tool, Args-Digest,
-Ergebnis, Dauer) · pytest + respx · GitHub Actions CI (ruff, mypy, pytest) ·
-Dockerfile non-root.
+Python 3.12 · uv · src layout · official MCP Python SDK · httpx
+(typed client for StudyLife, Pydantic models for DTOs) · Pydantic
+Settings + `.env` · structured audit log per tool call (tool, args digest,
+outcome, duration) · pytest + respx · GitHub Actions CI (ruff, mypy, pytest) ·
+non-root Dockerfile.
 
-## Was du VOLLSTÄNDIG übernehmen darfst
+## What you may own completely
 
-- Projekt-Scaffold, uv/pyproject, Ruff/mypy/pre-commit, CI-Workflows, Dockerfile.
-- Der typisierte HTTP-Client (StudyLife) inkl. Fehlerbehandlung und Retries.
-- Tests (Contract-Tests je Tool, Fehlerfälle, Timeouts), Fixtures, Mocks.
-- **Dokumentation komplett:** README (Setup für Claude Desktop UND HTTP,
-  Konfigurationstabelle, Tool-Referenz, Security-Abschnitt), docs/decisions.md-Einträge
-  nach meinen Entscheidungen, Docstrings, Mermaid-Diagramm, HACS-Style-Setup-Doku.
-- Refactoring, Typisierung, Logging, Glue-Code.
+- Project scaffold, uv/pyproject, Ruff/mypy/pre-commit, CI workflows, Dockerfile.
+- The typed HTTP client (StudyLife) including error handling and retries.
+- Tests (contract tests per tool, error cases, timeouts), fixtures, mocks.
+- **Documentation end to end:** README (setup for Claude Desktop AND HTTP,
+  configuration table, tool reference, security section), `docs/decisions.md` entries
+  following the maintainer decisions, docstrings, Mermaid diagram, HACS-style setup docs.
+- Refactoring, typing, logging, glue code.
 
-## Wo du NUR ASSISTIERST (ich entscheide, du setzt um / reviewst)
+## Where you only assist (the maintainer decides, you implement and review)
 
-Erst Optionen mit Trade-offs vorlegen, dann entscheide ich, dann implementieren wir.
-Nichts hiervon proaktiv festlegen:
+Present options with their trade-offs first, then the maintainer decides, then implement
+together. Do not settle any of this proactively:
 
-- **Tool-/Resource-Modellierung:** Was ist Tool, was Resource? Granularität,
-  Namensgebung, Beschreibungstexte (die liest das LLM!), Parameter-Schemas,
-  saubere Schemas und Fehlermeldungen, Umgang mit `GET /api/notes` ohne
-  serverseitige Pagination.
-- **Auth-Design:** Dritter StudyLife-Key-Slot (`McpApiKeyHash`, analog zum
-  AiApiKey-Muster) vs. Wiederverwendung eines bestehenden Keys — Präzedenz: die
-  Blast-Radius-Entscheidung "Dedicated StudyLife API key" in
-  studylife-ai/docs/decisions.md. Für HTTP-Transport: wie authentifiziert sich
-  der MCP-Client gegen diesen Server?
-- **Whitelist-Inhalt und Bestätigungs-Semantik:** Wie Tool-Beschreibungen
-  Schreibwirkungen kommunizieren; ob Writes eine server-seitige
-  Bestätigungsstufe brauchen oder Claudes Client-seitige Tool-Approval reicht
-  (Trade-offs aufbereiten).
-- **Daten-vs-Instruktions-Grenzen:** Wie Notiz-/Entity-Freitext in Tool-Responses
-  markiert wird. Lehre aus studylife-ai: Content kann Boundary-Marker enthalten
-  (der `</notes>`-Escaping-Fund) — Escaping von Anfang an mitdenken.
-- **Single- vs. Multi-User-Scope** (Default-Annahme: Single-User wie
-  studylife-ai v1, aber als bewusste Entscheidung loggen).
+- **Tool and resource modelling:** what is a tool, what is a resource? Granularity,
+  naming, description texts (the LLM reads those!), parameter schemas, clean schemas
+  and error messages, handling `GET /api/notes` without server-side pagination.
+- **Auth design:** a third StudyLife key slot (`McpApiKeyHash`, analogous to the
+  `AiApiKey` pattern) vs. reusing an existing key — precedent: the blast-radius
+  decision "Dedicated StudyLife API key" in `studylife-ai/docs/decisions.md`.
+  For the HTTP transport: how does the MCP client authenticate against this server?
+- **Whitelist content and confirmation semantics:** how tool descriptions communicate
+  write effects; whether writes need a server-side confirmation step or whether the
+  client-side tool approval in Claude is enough (lay out the trade-offs).
+- **Data-vs-instruction boundaries:** how note and entity free text is marked in tool
+  responses. Lesson from studylife-ai: content can contain boundary markers (the
+  `</notes>` escaping finding) — design the escaping in from the start.
+- **Single- vs. multi-user scope** (default assumption: single user as in studylife-ai v1,
+  but log it as a deliberate decision).
 
-Wenn du in einem dieser Bereiche etwas umsetzt, erkläre vorher in 2–3 Sätzen das
-Warum. Siehst du in meinem Entwurf einen Fehler, sag es direkt.
+When you implement something in these areas, explain the reasoning in two or three
+sentences first. If you see a mistake in a proposed design, say so directly.
 
-## Was du NICHT tun sollst
+## What you must not do
 
-- Keine Architektur-/Stack-Änderungen ohne explizite Rückfrage.
-- Keine Update-/Delete-Tools — auch nicht "vorbereitet" oder auskommentiert.
-- Keine Home-Assistant-Anbindung (aus dem Scope genommen, siehe oben).
-- Keine Secrets/Keys/Tokens in Code, Beispielen, Doku oder Tests (env vars;
-  `.env.example` ja, `.env` in `.gitignore`).
-- Keine erfundenen Metriken/Benchmarks — nur Gemessenes, sonst TODO.
-- Nicht mehrere Meilensteine auf einmal. Strikt inkrementell.
-- Keine zusätzlichen Dependencies ohne kurze Begründung + Rückfrage.
-- Keine Annahmen über StudyLife-Endpunkte jenseits des "Vorwissens" — nachfragen.
+- No architecture or stack changes without explicitly asking first.
+- No update or delete tools — not even "prepared" or commented out.
+- No Home Assistant integration (removed from the scope, see above).
+- Never put secrets, keys or tokens into code, examples, docs or tests (environment
+  variables only; `.env.example` yes, `.env` in `.gitignore`).
+- No invented metrics or benchmarks — only measured numbers, otherwise TODO.
+- Do not build several milestones at once. Strictly incremental.
+- No extra dependencies without a short justification and asking first.
+- No assumptions about StudyLife endpoints beyond the verified background knowledge — ask.
 
-## Meilensteine (S1–S4 aus dem Karriereplan, ohne Home Assistant; immer nur den aktuellen bearbeiten)
+## Milestones (S1–S4, without Home Assistant; always work on the current one only)
 
-- **S1 (jetzt, ~1 Woche):** MCP-Grundlagen: Scaffold, Hello-World-Server mit
-  **einem** Read-Tool (`list_courses` gegen die echte StudyLife-API) via stdio,
-  **in Claude Desktop end-to-end verifiziert**. CI grün, README v1, decisions.md angelegt.
-- **S2 (~2 Wochen):** StudyLife-Resources read-only komplett: Notizen, Kurse,
-  Sessions/Kalender, Lernfortschritt — mit sauberen Schemas und Fehlermeldungen;
-  Modellierungs- und Pagination-Entscheidungen getroffen; Contract-Tests.
-- **S3 (~1 Woche):** Schreibende StudyLife-Tools (Session anlegen, Notiz anlegen)
-  mit Whitelist + Audit-Log; Bestätigungs-Semantik entschieden und dokumentiert;
-  Daten-vs-Instruktions-Grenzen umgesetzt.
-- **S4 (~1 Woche):** Streamable-HTTP-Transport + Server-Auth, Docker-Image,
-  MCP-Inspector-Durchlauf dokumentiert, ausführliches README mit Setup-Doku
-  (Claude Desktop JSON + HTTP) und Demo-Material, Eintrag in MCP-Verzeichnisse.
+- **S1 (current, ~1 week):** MCP basics: scaffold, hello-world server with **one**
+  read tool (`list_courses` against the real StudyLife API) over stdio,
+  **verified end to end in Claude Desktop**. CI green, README v1, `decisions.md` created.
+- **S2 (~2 weeks):** StudyLife resources read-only and complete: notes, courses,
+  sessions/calendar, study progress — with clean schemas and error messages;
+  modelling and pagination decisions made; contract tests.
+- **S3 (~1 week):** StudyLife write tools (create session, create note) with whitelist
+  and audit log; confirmation semantics decided and documented;
+  data-vs-instruction boundaries implemented.
+- **S4 (~1 week):** Streamable HTTP transport + server auth, Docker image,
+  documented MCP Inspector run, detailed README with setup docs
+  (Claude Desktop JSON + HTTP) and demo material, listing in MCP directories.
 
-## Arbeitsweise & Qualität
+## Way of working and quality
 
-- Nach jedem größeren Schritt: kurze Zusammenfassung + offene Entscheidungen.
-- Pflege **`docs/decisions.md`** im Stil von studylife-ai: Datum, Entscheidung,
-  Alternativen, Warum, `[owner: user]` / `[owner: assistant]`. Committed, öffentlich.
-- Conventional Commits, Englisch, kleinteilig. **Code, Kommentare, README,
-  decisions.md auf Englisch; mit mir sprichst du Deutsch.**
-- Vollständige Type Hints, Ruff + mypy clean, Pydantic überall; jedes Tool mit
-  Tests (Happy Path, Fehlerfälle, Timeout), HTTP gemockt.
-- Tool-Beschreibungen sind Teil des Produkts: präzise, Englisch, Schreibwirkung
-  explizit ("Creates …. Does not modify existing data.").
-- Definition of done je Meilenstein: CI grün · README aktuell · decisions.md
-  aktuell · end-to-end gegen die echte Instanz verifiziert (nicht nur Mocks).
+- After every larger step: a short summary plus the open decisions.
+- Maintain **`docs/decisions.md`** in the style of studylife-ai: date, decision,
+  alternatives, why, `[owner: user]` / `[owner: assistant]`. Committed, public.
+- Conventional Commits, English, small commits. **Code, comments, README and
+  `decisions.md` in English.**
+- Complete type hints, Ruff + mypy clean, Pydantic everywhere; every tool covered by
+  tests (happy path, error cases, timeout), HTTP mocked.
+- Tool descriptions are part of the product: precise, English, write effects stated
+  explicitly ("Creates …. Does not modify existing data.").
+- Definition of done per milestone: CI green · README current · `decisions.md` current ·
+  verified end to end against the real instance (not just mocks).
 
-## Startaufgabe
+## Starting task
 
-Beginne mit **S1**: Lege die Projektstruktur an und erkläre sie mir kurz, bevor du
-Code schreibst. Frage mich nach `STUDYLIFE_BASE_URL` und wie ich den API-Key für die
-lokale Entwicklung bereitstelle, statt Annahmen zu treffen. Danach Schritt für
-Schritt: Scaffold → StudyLife-Client → `list_courses`-Tool → Claude-Desktop-Verifikation.
+Begin with **S1**: create the project structure and explain it briefly before writing code.
+Ask for `STUDYLIFE_BASE_URL` and how the API key is provided for local development instead
+of making assumptions. Then step by step: scaffold → StudyLife client → `list_courses` tool
+→ Claude Desktop verification.
