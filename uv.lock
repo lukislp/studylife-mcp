@@ -1028,7 +1028,7 @@ wheels = [
 
 [[package]]
 name = "studylife-mcp"
-version = "1.14.18.dev48+g333e153d6.d20260917"
+version = "1.14.18.dev49+gac8cc2336.d20260917"
 source = { editable = "." }
 dependencies = [
     { name = "aiosqlite" },
