@@ -1,3 +1,10 @@
+## [1.14.20](https://github.com/lukislp/studylife-mcp/compare/v1.14.19...v1.14.20) (2026-09-17)
+
+
+### Bug Fixes
+
+* **deps:** bump mcp from 2.1.1 to 2.2.0 ([e986ffb](https://github.com/lukislp/studylife-mcp/commit/e986ffb563ef8ce7c96b453e6d133317b700856a))
+
 ## [1.14.19](https://github.com/lukislp/studylife-mcp/compare/v1.14.18...v1.14.19) (2026-09-17)
 
 
