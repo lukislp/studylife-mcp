@@ -1,3 +1,10 @@
+## [1.14.18](https://github.com/lukislp/studylife-mcp/compare/v1.14.17...v1.14.18) (2026-09-17)
+
+
+### Bug Fixes
+
+* **ci:** bump astral-sh/setup-uv from 10.0.1 to 10.1.0 ([5d275f5](https://github.com/lukislp/studylife-mcp/commit/5d275f5738a965e667634c390a42fe4866c53c92))
+
 ## [1.14.17](https://github.com/lukislp/studylife-mcp/compare/v1.14.16...v1.14.17) (2026-09-13)
 
 
