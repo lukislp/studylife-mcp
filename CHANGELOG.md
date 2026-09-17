@@ -1,3 +1,10 @@
+## [1.14.19](https://github.com/lukislp/studylife-mcp/compare/v1.14.18...v1.14.19) (2026-09-17)
+
+
+### Bug Fixes
+
+* **docker:** bump astral-sh/uv from 0.12.13 to 0.12.15 ([2cfe278](https://github.com/lukislp/studylife-mcp/commit/2cfe278e2069c898ed5172119c7030dcde25554f))
+
 ## [1.14.18](https://github.com/lukislp/studylife-mcp/compare/v1.14.17...v1.14.18) (2026-09-17)
 
 
