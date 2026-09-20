@@ -1,3 +1,10 @@
+## [1.14.22](https://github.com/lukislp/studylife-mcp/compare/v1.14.21...v1.14.22) (2026-09-20)
+
+
+### Bug Fixes
+
+* **ci:** correct missing Harden Runner allowlist ports (github.com:22, crl:80) ([#85](https://github.com/lukislp/studylife-mcp/issues/85)) ([9b5ca76](https://github.com/lukislp/studylife-mcp/commit/9b5ca76f5019876c1a6b743345f61710ee05fc3e))
+
 ## [1.14.21](https://github.com/lukislp/studylife-mcp/compare/v1.14.20...v1.14.21) (2026-09-20)
 
 
