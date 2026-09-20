@@ -1,3 +1,10 @@
+## [1.14.21](https://github.com/lukislp/studylife-mcp/compare/v1.14.20...v1.14.21) (2026-09-20)
+
+
+### Bug Fixes
+
+* **ci:** add Harden Runner in audit mode to every job ([#83](https://github.com/lukislp/studylife-mcp/issues/83)) ([440c25e](https://github.com/lukislp/studylife-mcp/commit/440c25ee0a063746c83af956dac206c4fcace58e))
+
 ## [1.14.20](https://github.com/lukislp/studylife-mcp/compare/v1.14.19...v1.14.20) (2026-09-17)
 
 
