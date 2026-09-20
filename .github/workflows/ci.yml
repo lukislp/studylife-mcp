@@ -44,6 +44,7 @@ jobs:
             files.pythonhosted.org:443
             fulcio.sigstore.dev:443
             ghcr.io:443
+            github.com:22
             github.com:443
             hosted-compute-request-orchestrator-prod-iad-02.githubapp.com:443
             mirror.gcr.io:443
@@ -89,6 +90,7 @@ jobs:
             files.pythonhosted.org:443
             fulcio.sigstore.dev:443
             ghcr.io:443
+            github.com:22
             github.com:443
             hosted-compute-request-orchestrator-prod-iad-02.githubapp.com:443
             mirror.gcr.io:443
@@ -134,6 +136,7 @@ jobs:
             files.pythonhosted.org:443
             fulcio.sigstore.dev:443
             ghcr.io:443
+            github.com:22
             github.com:443
             hosted-compute-request-orchestrator-prod-iad-02.githubapp.com:443
             mirror.gcr.io:443
@@ -184,6 +187,7 @@ jobs:
             files.pythonhosted.org:443
             fulcio.sigstore.dev:443
             ghcr.io:443
+            github.com:22
             github.com:443
             hosted-compute-request-orchestrator-prod-iad-02.githubapp.com:443
             mirror.gcr.io:443
@@ -242,6 +246,7 @@ jobs:
             files.pythonhosted.org:443
             fulcio.sigstore.dev:443
             ghcr.io:443
+            github.com:22
             github.com:443
             hosted-compute-request-orchestrator-prod-iad-02.githubapp.com:443
             mirror.gcr.io:443
@@ -329,6 +334,7 @@ jobs:
             files.pythonhosted.org:443
             fulcio.sigstore.dev:443
             ghcr.io:443
+            github.com:22
             github.com:443
             hosted-compute-request-orchestrator-prod-iad-02.githubapp.com:443
             mirror.gcr.io:443
@@ -419,6 +425,7 @@ jobs:
             files.pythonhosted.org:443
             fulcio.sigstore.dev:443
             ghcr.io:443
+            github.com:22
             github.com:443
             hosted-compute-request-orchestrator-prod-iad-02.githubapp.com:443
             mirror.gcr.io:443
@@ -504,6 +511,7 @@ jobs:
             files.pythonhosted.org:443
             fulcio.sigstore.dev:443
             ghcr.io:443
+            github.com:22
             github.com:443
             hosted-compute-request-orchestrator-prod-iad-02.githubapp.com:443
             mirror.gcr.io:443
@@ -574,6 +582,7 @@ jobs:
             files.pythonhosted.org:443
             fulcio.sigstore.dev:443
             ghcr.io:443
+            github.com:22
             github.com:443
             hosted-compute-request-orchestrator-prod-iad-02.githubapp.com:443
             mirror.gcr.io:443
@@ -642,6 +651,7 @@ jobs:
             files.pythonhosted.org:443
             fulcio.sigstore.dev:443
             ghcr.io:443
+            github.com:22
             github.com:443
             hosted-compute-request-orchestrator-prod-iad-02.githubapp.com:443
             mirror.gcr.io:443
@@ -728,6 +738,7 @@ jobs:
             files.pythonhosted.org:443
             fulcio.sigstore.dev:443
             ghcr.io:443
+            github.com:22
             github.com:443
             hosted-compute-request-orchestrator-prod-iad-02.githubapp.com:443
             mirror.gcr.io:443
