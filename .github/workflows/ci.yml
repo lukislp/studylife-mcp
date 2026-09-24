@@ -758,9 +758,15 @@ jobs:
             timestamp.sigstore.dev:443
             tuf-repo-cdn.sigstore.dev:443
             upload.pypi.org:443
+      # ref: the tag semantic-release just created, NOT main - the branch tip can move past
+      # it before this job's checkout runs (e.g. a second Dependabot PR auto-merging while
+      # this run's own release chain is still in flight). hatch-vcs derives the package
+      # version from git tag distance, so building off a later branch tip produces a
+      # "1 commit past the tag" dev version with a local (+g<sha>) segment, which PyPI's
+      # upload API rejects outright (400: local versions are not allowed).
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: main
+          ref: v${{ needs.get-version.outputs.next_version }}
           fetch-depth: 0 # full history + tags, so hatch-vcs can find the tag just created
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
