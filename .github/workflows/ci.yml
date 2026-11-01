@@ -50,6 +50,7 @@ jobs:
             mirror.gcr.io:443
             pkg-containers.githubusercontent.com:443
             production.cloudfront.docker.com:443
+            docker-images-prod.s3.dualstack.us-east-1.amazonaws.com:443
             pypi.org:443
             raw.githubusercontent.com:443
             registry-1.docker.io:443
@@ -96,6 +97,7 @@ jobs:
             mirror.gcr.io:443
             pkg-containers.githubusercontent.com:443
             production.cloudfront.docker.com:443
+            docker-images-prod.s3.dualstack.us-east-1.amazonaws.com:443
             pypi.org:443
             raw.githubusercontent.com:443
             registry-1.docker.io:443
@@ -142,6 +144,7 @@ jobs:
             mirror.gcr.io:443
             pkg-containers.githubusercontent.com:443
             production.cloudfront.docker.com:443
+            docker-images-prod.s3.dualstack.us-east-1.amazonaws.com:443
             pypi.org:443
             raw.githubusercontent.com:443
             registry-1.docker.io:443
@@ -193,6 +196,7 @@ jobs:
             mirror.gcr.io:443
             pkg-containers.githubusercontent.com:443
             production.cloudfront.docker.com:443
+            docker-images-prod.s3.dualstack.us-east-1.amazonaws.com:443
             pypi.org:443
             raw.githubusercontent.com:443
             registry-1.docker.io:443
@@ -252,6 +256,7 @@ jobs:
             mirror.gcr.io:443
             pkg-containers.githubusercontent.com:443
             production.cloudfront.docker.com:443
+            docker-images-prod.s3.dualstack.us-east-1.amazonaws.com:443
             pypi.org:443
             raw.githubusercontent.com:443
             registry-1.docker.io:443
@@ -341,6 +346,7 @@ jobs:
             mirror.gcr.io:443
             pkg-containers.githubusercontent.com:443
             production.cloudfront.docker.com:443
+            docker-images-prod.s3.dualstack.us-east-1.amazonaws.com:443
             pypi.org:443
             raw.githubusercontent.com:443
             registry-1.docker.io:443
@@ -432,6 +438,7 @@ jobs:
             mirror.gcr.io:443
             pkg-containers.githubusercontent.com:443
             production.cloudfront.docker.com:443
+            docker-images-prod.s3.dualstack.us-east-1.amazonaws.com:443
             pypi.org:443
             raw.githubusercontent.com:443
             registry-1.docker.io:443
@@ -518,6 +525,7 @@ jobs:
             mirror.gcr.io:443
             pkg-containers.githubusercontent.com:443
             production.cloudfront.docker.com:443
+            docker-images-prod.s3.dualstack.us-east-1.amazonaws.com:443
             pypi.org:443
             raw.githubusercontent.com:443
             registry-1.docker.io:443
@@ -590,6 +598,7 @@ jobs:
             mirror.gcr.io:443
             pkg-containers.githubusercontent.com:443
             production.cloudfront.docker.com:443
+            docker-images-prod.s3.dualstack.us-east-1.amazonaws.com:443
             pypi.org:443
             raw.githubusercontent.com:443
             registry-1.docker.io:443
@@ -659,6 +668,7 @@ jobs:
             mirror.gcr.io:443
             pkg-containers.githubusercontent.com:443
             production.cloudfront.docker.com:443
+            docker-images-prod.s3.dualstack.us-east-1.amazonaws.com:443
             pypi.org:443
             raw.githubusercontent.com:443
             registry-1.docker.io:443
@@ -747,6 +757,7 @@ jobs:
             mirror.gcr.io:443
             pkg-containers.githubusercontent.com:443
             production.cloudfront.docker.com:443
+            docker-images-prod.s3.dualstack.us-east-1.amazonaws.com:443
             pypi.org:443
             raw.githubusercontent.com:443
             registry-1.docker.io:443
