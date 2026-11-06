@@ -30,7 +30,7 @@ RUN uv sync --frozen --no-dev --no-install-project
 # hatch-vcs derives the package version from git tags, but this image never COPYs .git
 # (deliberately, to keep the dependency layer above cacheable across releases) - so
 # building the project itself below has no VCS history to read. CI passes the exact
-# semantic-release version it already computed as a build-arg (see the docker job in
+# release version it already computed as a build-arg (see the docker job in
 # ci.yml); the fallback below is only for an ad-hoc local `docker build` with no
 # --build-arg, and is never what ends up in a published image.
 # Deliberately the un-suffixed SETUPTOOLS_SCM_PRETEND_VERSION, not the dist-specific

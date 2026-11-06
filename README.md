@@ -1,4 +1,4 @@
-﻿# studylife-mcp
+# studylife-mcp
 
 [![CI](https://github.com/lukislp/studylife-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/lukislp/studylife-mcp/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/lukislp/studylife-mcp)](https://github.com/lukislp/studylife-mcp/releases)
@@ -342,7 +342,7 @@ uv run pytest
 - [x] **S2** — Remaining StudyLife read tools (notes, sessions, course goals), camelCase-alias DTOs, contract tests.
 - [x] **S3** — Write tools (`create_note`, `create_session`), dedicated `McpApiKeyHash` key slot, structured audit log.
 - [x] **S4** — Streamable HTTP transport, self-built OAuth 2.1 authorization server (multi-user), non-root Docker image, verified [MCP Inspector](docs/mcp-inspector.md) run.
-- [x] Production deployment to a real K3s cluster via Flux CD GitOps (see [k8s/](k8s/)), semantic-release + Docker-publish CI pipeline.
+- [x] Production deployment to a real K3s cluster via Flux CD GitOps (see [k8s/](k8s/)), lktec-bot release module + Docker-publish CI pipeline.
 - [x] Public exposure via Tailscale Funnel, scoped to exactly this one service at the ACL level, plus rate-limiting/TTL-cleanup hardening for the previously-open dynamic client registration endpoint.
 - [x] Connected-apps self-service page (internal-only), per-token rate limiting on `/mcp`, Prometheus metrics + Grafana dashboard on the author's own cluster.
 - [ ] Distributed tracing — deliberately deferred (logs + metrics cover current needs), see [docs/decisions.md](docs/decisions.md).
@@ -358,7 +358,7 @@ uv run pytest
 | OAuth store | `aiosqlite`, StudyLife keys encrypted at rest with `cryptography.fernet` |
 | Tests | `pytest` + `respx` (HTTP mocking) + an ASGI test client for the OAuth/StudyLife-connect routes |
 | Metrics | `prometheus-client`, scraped by the author's own self-hosted Prometheus |
-| CI/CD | GitHub Actions (`ruff`, `mypy --strict`, `pytest`, semantic-release, multi-arch Docker publish to GHCR, Trivy scan) |
+| CI/CD | GitHub Actions (`ruff`, `mypy --strict`, `pytest`, lktec-bot release module, multi-arch Docker publish to GHCR, Trivy scan) |
 | Deployment | Docker (non-root) Â· Kubernetes (K3s) via Flux CD GitOps, see [k8s/](k8s/) Â· public exposure via Tailscale Funnel |
 
 ## License
