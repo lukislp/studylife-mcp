@@ -133,7 +133,7 @@ def test_write_env_var_creates_parent_directory(tmp_path: Path) -> None:
 
 # --- run_login (end-to-end against the real loopback listener) ---------------
 #
-# open_browser is stubbed to simulate what a real browser would do on StudyLife's
+# open_browser is stubbed to simulate what a real browser would do on StudyAtrium's
 # /connect/mcp redirect: it fires a GET at the redirect_uri the code under test
 # generated, from a background thread so it doesn't block before run_login gets a
 # chance to start listening. No real browser opens and no external network is
@@ -316,7 +316,7 @@ def test_run_login_exchange_network_error_reported(
 
     assert exit_code == 1
     assert not (tmp_path / ".env").exists()
-    assert "Could not reach StudyLife" in capsys.readouterr().err
+    assert "Could not reach StudyAtrium" in capsys.readouterr().err
 
 
 def test_run_login_missing_base_url_reports_guidance(

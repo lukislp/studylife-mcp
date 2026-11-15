@@ -56,7 +56,7 @@ async def app_client(store: OAuthStore, settings: Settings):
 
 async def _start_authorization(provider_store: OAuthStore, base_url: str) -> str:
     """Mirrors what authorize() does - returns the state (our own pending-authorization
-    request_id) a real caller would get back from the redirect to StudyLife's
+    request_id) a real caller would get back from the redirect to StudyAtrium's
     /connect/mcp, then would see echoed on our /auth/studylife/callback."""
     provider = StudyLifeOAuthProvider(
         provider_store, base_url, "https://connect.studylife.example.test"
@@ -117,7 +117,7 @@ async def test_callback_happy_path_exchanges_assertion_and_redirects_with_code(
     # The pending authorization is consumed; re-submitting the same state fails.
     assert await store.load_pending_authorization(state) is None
 
-    # Subject is the real StudyLife user id, not a hash of the key (audit A1).
+    # Subject is the real StudyAtrium user id, not a hash of the key (audit A1).
     assert await store.load_user_key("42") == "rotated-mcp-key"
 
 
@@ -125,7 +125,7 @@ async def test_callback_happy_path_exchanges_assertion_and_redirects_with_code(
 async def test_callback_reconnect_upserts_key_for_same_subject(
     app_client: httpx.AsyncClient, store: OAuthStore
 ) -> None:
-    """A second connect for the same StudyLife user replaces the stored key rather
+    """A second connect for the same StudyAtrium user replaces the stored key rather
     than erroring or creating a second identity - required so rotation never orphans
     an existing grant (identity-contract-v1)."""
     respx.post(EXCHANGE_URL).mock(

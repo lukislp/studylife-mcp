@@ -154,16 +154,16 @@ async def exchange_mcp_assertion_verbose(settings: Settings, assertion: str) -> 
                 "/api/auth/mcp-assertion-exchange", json={"assertion": assertion}
             )
         except httpx.HTTPError as exc:
-            raise AssertionExchangeError(f"Could not reach StudyLife: {exc}") from exc
+            raise AssertionExchangeError(f"Could not reach StudyAtrium: {exc}") from exc
     if response.status_code != 200:
         raise AssertionExchangeError(
-            f"StudyLife rejected the login ({response.status_code}): {response.text.strip()}"
+            f"StudyAtrium rejected the login ({response.status_code}): {response.text.strip()}"
         )
     try:
         data = response.json()
         return int(data["userId"]), str(data["mcpApiKey"])
     except (KeyError, TypeError, ValueError) as exc:
-        raise AssertionExchangeError("StudyLife returned an unexpected response shape.") from exc
+        raise AssertionExchangeError("StudyAtrium returned an unexpected response shape.") from exc
 
 
 async def exchange_mcp_assertion(settings: Settings, assertion: str) -> tuple[int, str] | None:
