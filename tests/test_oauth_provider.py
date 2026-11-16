@@ -16,6 +16,7 @@ from pydantic import AnyUrl
 
 from studylife_mcp.oauth_provider import StudyLifeOAuthProvider
 from studylife_mcp.oauth_store import OAuthStore
+from studylife_mcp.pkce import challenge_for
 
 CLIENT = OAuthClientInformationFull(
     client_id="client-1",
@@ -59,15 +60,46 @@ async def test_authorize_saves_pending_and_redirects_to_own_consent_page(
     assert pending[0] == "client-1"
 
 
-def test_studylife_connect_url_round_trips_request_id_as_state(
-    provider: StudyLifeOAuthProvider,
+async def test_studylife_connect_url_round_trips_request_id_as_state(
+    provider: StudyLifeOAuthProvider, store: OAuthStore
 ) -> None:
-    url = provider.studylife_connect_url("req-1")
+    await store.save_pending_authorization("req-1", "client-1", "{}")
+
+    url = await provider.studylife_connect_url("req-1")
 
     assert url.startswith("https://connect.studylife.example.com/connect/mcp?")
     query = parse_qs(urlparse(url).query)
     assert query["redirect_uri"] == ["https://mcp.example.com/auth/studylife/callback"]
     assert query["state"] == ["req-1"]
+
+
+async def test_studylife_connect_url_carries_pkce_and_stores_verifier(
+    provider: StudyLifeOAuthProvider, store: OAuthStore
+) -> None:
+    await store.save_pending_authorization("req-1", "client-1", "{}")
+
+    url = await provider.studylife_connect_url("req-1")
+
+    query = parse_qs(urlparse(url).query)
+    assert query["code_challenge_method"] == ["S256"]
+    verifier = await store.take_code_verifier("req-1")
+    assert verifier is not None
+    assert query["code_challenge"] == [challenge_for(verifier)]
+    # The verifier itself never appears in the URL.
+    assert verifier not in url
+    # Single use: a second take finds nothing.
+    assert await store.take_code_verifier("req-1") is None
+
+
+async def test_each_connect_attempt_gets_a_fresh_verifier(
+    provider: StudyLifeOAuthProvider, store: OAuthStore
+) -> None:
+    await store.save_pending_authorization("req-1", "client-1", "{}")
+
+    first = parse_qs(urlparse(await provider.studylife_connect_url("req-1")).query)
+    second = parse_qs(urlparse(await provider.studylife_connect_url("req-1")).query)
+
+    assert first["code_challenge"] != second["code_challenge"]
 
 
 @pytest.mark.parametrize(

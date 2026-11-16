@@ -9,6 +9,7 @@ attacker. Each test drives real HTTP requests through the ASGI app; two separate
 httpx clients stand in for two separate browsers (separate cookie jars).
 """
 
+import json
 from collections.abc import AsyncIterator
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
@@ -28,6 +29,7 @@ from studylife_mcp.config import Settings
 from studylife_mcp.consent import BROWSER_BINDING_COOKIE
 from studylife_mcp.oauth_provider import SCOPE, StudyLifeOAuthProvider, register_oauth_routes
 from studylife_mcp.oauth_store import OAuthStore
+from studylife_mcp.pkce import challenge_for
 
 BASE_URL = "https://mcp.example.test"
 EXCHANGE_URL = "https://studylife.example.test/api/auth/mcp-assertion-exchange"
@@ -157,7 +159,18 @@ async def test_happy_path_consent_then_callback_issues_code_to_same_browser(
     connect = urlparse(approve.headers["location"])
     assert connect.netloc == "connect.studylife.example.test"
     assert connect.path == "/connect/mcp"
-    assert parse_qs(connect.query)["state"] == [request_id]
+    connect_query = parse_qs(connect.query)
+    assert connect_query["state"] == [request_id]
+    assert connect_query["code_challenge_method"] == ["S256"]
+    assert "code_verifier" not in connect_query
+    # The verifier is held server-side with the pending state, not in the URL or a cookie.
+    stored_verifier = await store.take_code_verifier(request_id)
+    assert stored_verifier is not None
+    assert connect_query["code_challenge"] == [challenge_for(stored_verifier)]
+    assert stored_verifier not in approve.headers["location"]
+    assert stored_verifier not in "".join(approve.headers.get_list("set-cookie"))
+    # Put it back for the callback below (take consumed it).
+    await store.save_code_verifier(request_id, stored_verifier)
 
     callback = await victim.get(
         "/auth/studylife/callback",
@@ -172,6 +185,12 @@ async def test_happy_path_consent_then_callback_issues_code_to_same_browser(
     assert "code" in query
     assert query["state"] == ["client-state"]
     assert exchange.call_count == 1
+    assert json.loads(exchange.calls.last.request.content) == {
+        "assertion": "single-use",
+        "codeVerifier": stored_verifier,
+    }
+    # Consumed by the exchange along with the pending authorization.
+    assert await store.take_code_verifier(request_id) is None
     assert await store.load_pending_authorization(request_id) is None
 
 

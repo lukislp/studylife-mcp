@@ -177,7 +177,13 @@ class OAuthStore:
             # Consent + browser binding for pending authorizations (audit 2026-11-16 H2,
             # see consent.py). A row from before this change has NULLs here and can
             # therefore never be approved - it simply expires.
-            for column in ("binding_hash TEXT", "csrf_token TEXT", "approved_at REAL"):
+            for column in (
+                "binding_hash TEXT",
+                "csrf_token TEXT",
+                "approved_at REAL",
+                # PKCE verifier for the StudyAtrium connect round trip (audit M5).
+                "code_verifier TEXT",
+            ):
                 try:
                     await conn.execute(f"ALTER TABLE pending_auth ADD COLUMN {column}")
                 except aiosqlite.OperationalError as exc:
@@ -324,6 +330,38 @@ class OAuthStore:
         async with self._connection() as conn:
             await conn.execute("DELETE FROM pending_auth WHERE request_id = ?", (request_id,))
             await conn.commit()
+
+    # --- PKCE verifier for the StudyAtrium connect round trip (audit M5) ---
+
+    async def save_code_verifier(self, request_id: str, code_verifier: str) -> None:
+        """Stores the PKCE verifier with the pending authorization, keyed by the same
+        request_id that travels as `state`. Server-side only: never in a URL or cookie.
+        Overwrites a previous one, so each connect attempt has a fresh verifier."""
+        async with self._connection() as conn:
+            await conn.execute(
+                "UPDATE pending_auth SET code_verifier = ? WHERE request_id = ?",
+                (code_verifier, request_id),
+            )
+            await conn.commit()
+
+    async def take_code_verifier(self, request_id: str) -> str | None:
+        """Returns the stored verifier and clears it in one step, so it can be used once.
+        None if there is none (unknown request, already taken, or a request that began
+        before PKCE existed)."""
+        async with self._connection() as conn:
+            cursor = await conn.execute(
+                "SELECT code_verifier FROM pending_auth WHERE request_id = ?", (request_id,)
+            )
+            row = await cursor.fetchone()
+            if row is None or row[0] is None:
+                return None
+            cleared = await conn.execute(
+                "UPDATE pending_auth SET code_verifier = NULL "
+                "WHERE request_id = ? AND code_verifier = ?",
+                (request_id, row[0]),
+            )
+            await conn.commit()
+            return str(row[0]) if cleared.rowcount == 1 else None
 
     # --- consent + browser binding for pending authorizations (consent.py, audit H2) ---
 
