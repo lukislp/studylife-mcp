@@ -24,7 +24,7 @@ npx @modelcontextprotocol/inspector --cli uv run studylife-mcp \
 ```
 
 Returned `isError: false`, `structuredContent.result` with all 58 real courses
-from the connected StudyLife instance, matching `list_courses`' declared output
+from the connected StudyAtrium instance, matching `list_courses`' declared output
 schema. The server's own audit log (`studylife_mcp.audit`, stderr) confirmed
 the call was logged: `tool=list_courses args_digest=... result=ok
 duration_ms=281.0`, alongside the underlying `httpx` request log line — visible
@@ -48,7 +48,7 @@ do its normal sync check) avoids the issue entirely.
 Beyond the Inspector, the entire OAuth 2.1 authorization-code + PKCE flow was
 exercised against a live `studylife-mcp-http` instance with a throwaway script:
 dynamic client registration (`POST /register`) → `/authorize` (redirects to
-this server's own login page) → login form submitted with a real StudyLife MCP
+this server's own login page) → login form submitted with a real StudyAtrium MCP
 API key → `/token` exchange (access + refresh token) → an authenticated
 `tools/call` over Streamable HTTP (`POST /mcp` with `Authorization: Bearer
 ...`), which returned the same real course data. See

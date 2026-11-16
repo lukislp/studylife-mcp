@@ -40,7 +40,7 @@ class StudyLifeClientResolver:
         # ever invoked, so this is defense in depth, not the primary gate.
         access_token = get_access_token()
         if access_token is None or access_token.subject is None:
-            raise PermissionError("This request isn't authenticated as a StudyLife account.")
+            raise PermissionError("This request isn't authenticated as a StudyAtrium account.")
 
         subject = access_token.subject
         cached = self._client_by_subject.get(subject)
@@ -53,7 +53,7 @@ class StudyLifeClientResolver:
             # removed out of band). Fail closed rather than falling back to the
             # .env account, which would leak that account's data to an unrelated
             # caller.
-            raise PermissionError("No StudyLife account is linked to this session anymore.")
+            raise PermissionError("No StudyAtrium account is linked to this session anymore.")
 
         client = StudyLifeClient(self._settings.model_copy(update={"studylife_api_key": api_key}))
         self._client_by_subject[subject] = client

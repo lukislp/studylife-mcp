@@ -307,7 +307,7 @@ _PAGE_STYLE = """
 
 _BRAND_HTML = (
     '<div class="brand"><span class="brand-icon">&#10022;</span>'
-    '<span class="brand-name">StudyLife</span></div>'
+    '<span class="brand-name">StudyAtrium</span></div>'
 )
 
 
@@ -336,7 +336,7 @@ _EXPIRED_LINK_HTML = f"""<!doctype html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Link expired &mdash; StudyLife</title>
+<title>Link expired &mdash; StudyAtrium</title>
 <style>{_PAGE_STYLE}</style>
 </head>
 <body>
@@ -355,14 +355,14 @@ _CONNECT_FAILED_HTML = f"""<!doctype html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Connection failed &mdash; StudyLife</title>
+<title>Connection failed &mdash; StudyAtrium</title>
 <style>{_PAGE_STYLE}</style>
 </head>
 <body>
 <div class="card">
 {_BRAND_HTML}
 <h1>Connection failed</h1>
-<p>StudyLife could not confirm this connection. Please restart it from your MCP client.</p>
+<p>StudyAtrium could not confirm this connection. Please restart it from your MCP client.</p>
 </div>
 </body>
 </html>
@@ -487,15 +487,15 @@ def _render_connected_apps_login_page(*, error: str | None = None) -> str:
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Connected Apps &mdash; StudyLife</title>
+<title>Connected Apps &mdash; StudyAtrium</title>
 <style>{_PAGE_STYLE}</style>
 </head>
 <body>
 <div class="card">
 {_BRAND_HTML}
 <h1>Connected apps</h1>
-<p>Enter your StudyLife MCP API key to see which apps currently have access
-to your StudyLife account, and revoke any you no longer recognize.</p>
+<p>Enter your StudyAtrium MCP API key to see which apps currently have access
+to your StudyAtrium account, and revoke any you no longer recognize.</p>
 {error_html}
 <form method="post" action="/connected-apps">
   <label for="api_key">API key</label>
@@ -531,20 +531,20 @@ def _render_connected_apps_list_page(clients: list[ConnectedClient], csrf_token:
             for c in clients
         )
     else:
-        body = '<p class="hint">No apps currently have access to your StudyLife account.</p>'
+        body = '<p class="hint">No apps currently have access to your StudyAtrium account.</p>'
     return f"""<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Connected Apps &mdash; StudyLife</title>
+<title>Connected Apps &mdash; StudyAtrium</title>
 <style>{_PAGE_STYLE}</style>
 </head>
 <body>
 <div class="card">
 {_BRAND_HTML}
 <h1>Connected apps</h1>
-<p>Apps with current access to your StudyLife account. Revoking one signs it
+<p>Apps with current access to your StudyAtrium account. Revoking one signs it
 out immediately - it has to go through login again to reconnect.</p>
 {body}
 </div>
@@ -729,14 +729,16 @@ def register_oauth_routes(
 
         if not api_key:
             return HTMLResponse(
-                _render_connected_apps_login_page(error="Please enter your StudyLife MCP API key."),
+                _render_connected_apps_login_page(
+                    error="Please enter your StudyAtrium MCP API key."
+                ),
                 status_code=400,
             )
         subject = await _resolve_key_subject(settings, api_key)
         if subject is None:
             return HTMLResponse(
                 _render_connected_apps_login_page(
-                    error="StudyLife rejected this key (or couldn't be reached). "
+                    error="StudyAtrium rejected this key (or couldn't be reached). "
                     "Check it and try again."
                 ),
                 status_code=401,

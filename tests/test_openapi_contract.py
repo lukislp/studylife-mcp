@@ -1,8 +1,8 @@
 """Contract tests: studylife-mcp's hand-mirrored DTOs (models.py) and hardcoded
-endpoints (client.py) against StudyLife's committed OpenAPI spec (studylife repo,
+endpoints (client.py) against StudyAtrium's committed OpenAPI spec (studylife repo,
 docs/api/openapi.json).
 
-Audit finding D2 (consumer side): this server hand-mirrors StudyLife's C# DTOs in
+Audit finding D2 (consumer side): this server hand-mirrors StudyAtrium's C# DTOs in
 models.py and hand-codes the paths/methods it calls in client.py, instead of
 generating either from the spec. These tests don't fix that duplication - they
 catch it silently drifting out of sync, by diffing the mirrored surface against
@@ -52,12 +52,12 @@ def _load_spec() -> dict[str, Any]:
     except Exception as exc:
         if _running_in_ci():
             pytest.fail(
-                f"Could not load the StudyLife OpenAPI spec from {source!r}: {exc}. "
+                f"Could not load the StudyAtrium OpenAPI spec from {source!r}: {exc}. "
                 "The spec must be reachable in CI - this is a contract test, not an "
                 "optional one."
             )
         pytest.skip(
-            f"StudyLife OpenAPI spec unreachable ({source!r}): {exc}. Skipping contract "
+            f"StudyAtrium OpenAPI spec unreachable ({source!r}): {exc}. Skipping contract "
             "tests locally-offline. Set STUDYLIFE_OPENAPI_SPEC to a local "
             "docs/api/openapi.json path to run them offline."
         )
@@ -88,7 +88,7 @@ def spec_schemas(spec: dict[str, Any]) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 # (method, path, caller) - path is the exact template client.py sends; none of
-# these StudyLife routes take path parameters, so no {id}-style placeholders are
+# these StudyAtrium routes take path parameters, so no {id}-style placeholders are
 # needed here.
 
 CLIENT_ENDPOINTS: list[tuple[str, str, str]] = [
@@ -129,7 +129,7 @@ def test_client_endpoint_exists_in_spec(
 # ---------------------------------------------------------------------------
 
 # Explicit model -> OpenAPI component schema name map. Names come straight from
-# each model's own docstring ("Mirrors StudyLife.Shared.XyzDto") - if the C# DTO
+# each model's own docstring ("Mirrors StudyAtrium.Shared.XyzDto") - if the C# DTO
 # gets renamed, or Swashbuckle's SchemaId strategy changes, update this map (the
 # assertion messages below list every available schema name to make that easy).
 MODEL_SCHEMA_MAP: dict[type[BaseModel], str] = {
@@ -176,7 +176,7 @@ def _is_nullable(prop: dict[str, Any]) -> bool:
 @pytest.mark.parametrize("model", list(MODEL_SCHEMA_MAP), ids=lambda m: m.__name__)
 def test_model_fields_exist_in_schema(spec_schemas: dict[str, Any], model: type[BaseModel]) -> None:
     """Every field mirrored in the pydantic model - required or optional - must
-    exist as a property on the spec schema. If StudyLife drops or renames a field,
+    exist as a property on the spec schema. If StudyAtrium drops or renames a field,
     a tool reading it should fail loudly here rather than silently getting `None`
     (or a validation error deep in a live call) at runtime."""
     schema = _schema_for(spec_schemas, model)
@@ -219,10 +219,10 @@ def test_model_required_fields_match_schema(
             f"default), but spec schema {schema_name!r}'s property {json_name!r} is "
             f"{'nullable' if nullable else 'not in the schema required list'} "
             f"(schema required: {sorted(required)}). This is real drift: "
-            f"{model.__name__}.model_validate(...) will raise on any real StudyLife "
+            f"{model.__name__}.model_validate(...) will raise on any real StudyAtrium "
             f"response that omits or nulls {json_name!r}, even though the API allows "
             f"it. Fix by either loosening {model.__name__}.{field_name} to Optional "
-            "to match reality, or tightening the field on the StudyLife side if it "
+            "to match reality, or tightening the field on the StudyAtrium side if it "
             "should truly always be present."
         )
 
@@ -232,7 +232,7 @@ def test_schema_properties_all_mirrored(
     spec_schemas: dict[str, Any], model: type[BaseModel]
 ) -> None:
     """The inverse direction: every property the spec declares should have a
-    matching pydantic field. An unmirrored property is either a field StudyLife
+    matching pydantic field. An unmirrored property is either a field StudyAtrium
     added that this client silently drops on every response, or a naming mismatch
     this test's alias handling hasn't caught."""
     schema = _schema_for(spec_schemas, model)
@@ -244,7 +244,7 @@ def test_schema_properties_all_mirrored(
     assert not missing, (
         f"Spec schema {schema_name!r} declares "
         f"propert{'y' if len(missing) == 1 else 'ies'} {sorted(missing)} that "
-        f"{model.__name__} has no matching field for. If StudyLife added these, "
+        f"{model.__name__} has no matching field for. If StudyAtrium added these, "
         "mirror them in models.py; if they're intentionally unused, add them to "
         "ALLOWED_UNMIRRORED_PROPERTIES in this test instead of leaving this failing."
     )

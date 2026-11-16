@@ -1,18 +1,20 @@
-﻿# studylife-mcp
+﻿# StudyAtrium MCP
+
+(formerly StudyLife)
 
 [![CI](https://github.com/lukislp/studylife-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/lukislp/studylife-mcp/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/lukislp/studylife-mcp)](https://github.com/lukislp/studylife-mcp/releases)
 [![License: AGPL-3.0](https://img.shields.io/github/license/lukislp/studylife-mcp)](LICENSE)
 [![Python](https://img.shields.io/badge/Python-3.12-3776AB)](https://www.python.org/)
 
-An [MCP](https://modelcontextprotocol.io) server exposing [StudyLife](https://github.com/lukislp/studylife)
+An [MCP](https://modelcontextprotocol.io) server exposing [StudyAtrium](https://github.com/lukislp/studylife)
 (a self-hosted Blazor WASM + ASP.NET Core study-management platform, .NET 10)
 to Claude and other MCP clients. It provides:
 
 - **Read tools** — courses, notes (incl. full-text search), study sessions/calendar, and per-course learning goals.
 - **Write tools** — create a note, create a study session. Nothing else: no update/delete tools exist, not even unimplemented.
-- **Two transports** — stdio (Claude Desktop, single StudyLife account) and Streamable HTTP (remote, multi-user, behind your own reverse proxy).
-- **A self-built OAuth 2.1 authorization server** for the HTTP transport — dynamic client registration, PKCE, and a StudyLife-hosted connect flow (passkey login + consent, no API key to copy/paste) for identity, so multiple StudyLife users can share one deployment without ever seeing each other's data.
+- **Two transports** — stdio (Claude Desktop, single StudyAtrium account) and Streamable HTTP (remote, multi-user, behind your own reverse proxy).
+- **A self-built OAuth 2.1 authorization server** for the HTTP transport — dynamic client registration, PKCE, and a StudyAtrium-hosted connect flow (passkey login + consent, no API key to copy/paste) for identity, so multiple StudyAtrium users can share one deployment without ever seeing each other's data.
 - **A structured audit log** (tool, argument digest, outcome, duration) for every tool call, on both transports.
 
 This is a learning project and portfolio piece; design decisions and trade-offs
@@ -25,17 +27,17 @@ just exposes cleanly modeled tools.
 
 **S1** (scaffold, `list_courses` over stdio, verified end-to-end in Claude
 Desktop) and **S2** (the remaining read tools — notes, sessions, course goals —
-with camelCase-alias DTOs mirroring StudyLife's real JSON shapes) are done.
+with camelCase-alias DTOs mirroring StudyAtrium's real JSON shapes) are done.
 **S3** is done: the two write tools, gated by the MCP client's own tool-approval
 prompt (no server-side confirmation step — this project has no agent loop of
-its own to pause), backed by a dedicated `McpApiKeyHash` StudyLife API-key slot
+its own to pause), backed by a dedicated `McpApiKeyHash` StudyAtrium API-key slot
 mirroring the existing Home-Assistant/studylife-ai pattern (implemented
 directly in the `studylife` repo, not here — see [docs/decisions.md](docs/decisions.md)),
 and a structured audit log on every tool call. **S4** is done: Streamable HTTP
 transport, a self-built OAuth 2.1 authorization server with multi-user support
 (see [Streamable HTTP + OAuth 2.1](#setup-streamable-http--oauth-21-remote-multi-user)
 below), a non-root Docker image, and a verified [MCP Inspector](docs/mcp-inspector.md)
-run. Every milestone was verified against the real StudyLife instance, not
+run. Every milestone was verified against the real StudyAtrium instance, not
 just mocks — see [docs/decisions.md](docs/decisions.md) for each milestone's
 full write-up, including two real bugs found live along the way (a silent
 camelCase/snake_case field mismatch, and a double-`await` that crashed the
@@ -75,8 +77,8 @@ flowchart LR
         Audit["Audit log\n(stderr: tool, args digest,\noutcome, duration)"]
     end
 
-    StudyLifeConnect["StudyLife /connect/mcp\n(login + consent, public)"]
-    StudyLifeAPI["StudyLife REST API\n(X-Api-Key / assertion exchange)"]
+    StudyLifeConnect["StudyAtrium /connect/mcp\n(login + consent, public)"]
+    StudyLifeAPI["StudyAtrium REST API\n(X-Api-Key / assertion exchange)"]
 
     Desktop -- stdio --> StdioT
     Remote -- HTTPS --> Proxy
@@ -95,13 +97,13 @@ flowchart LR
     Tools --> Audit
 ```
 
-stdio mode always uses the single `.env`-configured StudyLife account.
-HTTP+OAuth mode resolves each authenticated caller to *their own* StudyLife
-account: `authorize()` redirects the user's browser to StudyLife's own
-`/connect/mcp` page — StudyLife handles the passkey login and consent, then
+stdio mode always uses the single `.env`-configured StudyAtrium account.
+HTTP+OAuth mode resolves each authenticated caller to *their own* StudyAtrium
+account: `authorize()` redirects the user's browser to StudyAtrium's own
+`/connect/mcp` page — StudyAtrium handles the passkey login and consent, then
 redirects back to this server's `/auth/studylife/callback` with a single-use
 assertion. This server exchanges that assertion server-to-server for the
-caller's real StudyLife user id and a freshly rotated MCP API key, and binds
+caller's real StudyAtrium user id and a freshly rotated MCP API key, and binds
 every access/refresh token issued from that login to that user id (not a hash
 of the key — see [docs/decisions.md](docs/decisions.md) "Identity Contract v1"
 for why that mattered). `StudyLifeClientResolver` looks up the right account per tool
@@ -110,9 +112,9 @@ falling back to the `.env` account) whenever HTTP mode is configured but a
 request isn't properly authenticated — see [docs/decisions.md](docs/decisions.md)
 "Multi-user" for the full reasoning.
 
-## Setup: Claude Desktop (stdio, single StudyLife account)
+## Setup: Claude Desktop (stdio, single StudyAtrium account)
 
-1. Copy `.env.example` to `.env` and set `STUDYLIFE_BASE_URL` to your StudyLife
+1. Copy `.env.example` to `.env` and set `STUDYLIFE_BASE_URL` to your StudyAtrium
    instance URL. Leave `STUDYLIFE_API_KEY` unset for now — the next step fills it in.
 2. Install dependencies: `uv sync`
 3. Log in and get an MCP API key. Two ways to do this:
@@ -123,11 +125,11 @@ request isn't properly authenticated — see [docs/decisions.md](docs/decisions.
      uv run studylife-mcp-login
      ```
 
-     This opens your browser to StudyLife's own login/consent page
+     This opens your browser to StudyAtrium's own login/consent page
      (`/connect/mcp`, passkey login — the same flow the
      [Streamable HTTP transport](#setup-streamable-http--oauth-21-remote-multi-user)
      uses), receives the resulting single-use assertion on a short-lived
-     `127.0.0.1` listener (RFC 8252 loopback redirect — requires a StudyLife
+     `127.0.0.1` listener (RFC 8252 loopback redirect — requires a StudyAtrium
      release with the loopback exception for `/connect/mcp`; older instances
      reject the redirect_uri, in which case fall back to manual setup below),
      exchanges it server-to-server for a freshly rotated MCP API key, and
@@ -135,11 +137,11 @@ request isn't properly authenticated — see [docs/decisions.md](docs/decisions.
      printed to the terminal. Options: `--base-url` (override
      `STUDYLIFE_BASE_URL` for this run), `--env-file` (default `.env`),
      `--timeout` (seconds to wait for the browser round trip, default 300).
-   - **Manual (fallback for older StudyLife instances only):** current StudyLife
+   - **Manual (fallback for older StudyAtrium instances only):** current StudyAtrium
      releases no longer offer an MCP key on the Setup page - the browser login
      above is the only provisioning path. On an older instance that predates
      the loopback exception, generate a dedicated key on its Setup page
-     ("StudyLife MCP Server" card) and paste it into `.env` as
+     ("StudyAtrium MCP Server" card) and paste it into `.env` as
      `STUDYLIFE_API_KEY`.
 
 4. Add to your Claude Desktop config (`claude_desktop_config.json`):
@@ -173,9 +175,9 @@ request isn't properly authenticated — see [docs/decisions.md](docs/decisions.
 
 Run this behind your own reverse proxy (TLS terminates there) to add
 `studylife-mcp` as a **remote** MCP connector — e.g. via a client's "Custom
-Connector" URL field. Unlike stdio mode, multiple StudyLife users can share one
-running server: each person signs in with their own StudyLife account (passkey
-login + consent on StudyLife's own `/connect/mcp` page), and every access token
+Connector" URL field. Unlike stdio mode, multiple StudyAtrium users can share one
+running server: each person signs in with their own StudyAtrium account (passkey
+login + consent on StudyAtrium's own `/connect/mcp` page), and every access token
 is bound to that one account.
 
 1. In `.env`, in addition to `STUDYLIFE_BASE_URL` (`STUDYLIFE_API_KEY` is
@@ -184,7 +186,7 @@ is bound to that one account.
    ```bash
    MCP_PUBLIC_URL=https://studylife-mcp.example.com          # externally reachable, behind your reverse proxy
    MCP_TOKEN_ENCRYPTION_KEY=...                               # python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
-   STUDYLIFE_CONNECT_URL=https://studylife.example.com        # StudyLife's own public base URL
+   STUDYLIFE_CONNECT_URL=https://studylife.example.com        # StudyAtrium's own public base URL
    ```
 
    `MCP_OAUTH_DB_PATH` (default `oauth.db`), `MCP_HTTP_HOST` (default
@@ -207,8 +209,8 @@ is bound to that one account.
 3. Add `https://studylife-mcp.example.com` as a remote MCP connector in your
    client. The client registers itself automatically (dynamic client
    registration, RFC 7591); on first connect you'll be redirected to
-   StudyLife itself to log in (passkey) and approve the connection — no API
-   key to copy/paste. StudyLife hands back a single-use assertion this server
+   StudyAtrium itself to log in (passkey) and approve the connection — no API
+   key to copy/paste. StudyAtrium hands back a single-use assertion this server
    exchanges server-to-server for your real account and a freshly rotated MCP
    API key. Subsequent connections reuse the refresh token, no re-login needed.
 
@@ -233,11 +235,11 @@ and a real Tailscale-side incident hit along the way.
 
 | Variable | Description |
 |---|---|
-| `STUDYLIFE_BASE_URL` | Base URL of your StudyLife instance, e.g. `https://studylife.example.com/` (or a cluster-internal address in HTTP mode) - what this server itself calls, both for tool calls and the connect-flow assertion exchange. |
+| `STUDYLIFE_BASE_URL` | Base URL of your StudyAtrium instance, e.g. `https://studylife.example.com/` (or a cluster-internal address in HTTP mode) - what this server itself calls, both for tool calls and the connect-flow assertion exchange. |
 | `STUDYLIFE_API_KEY` | MCP API key, sent as the `X-Api-Key` header - obtained via `studylife-mcp-login` (see Setup). Required for stdio mode (the single account it always runs as). Optional in HTTP mode - each caller resolves to their own account via the connect flow instead, and `StudyLifeClientResolver` fails closed rather than falling back to this key for an unauthenticated caller. |
 | `MCP_PUBLIC_URL` | *(HTTP mode only)* Externally reachable base URL of this server, behind your reverse proxy. Used as both the OAuth `issuer_url` and `resource_server_url`, and to build this server's own `/auth/studylife/callback` URL. |
-| `STUDYLIFE_CONNECT_URL` | *(HTTP mode only)* StudyLife's own public/browser-facing base URL. The OAuth `authorize()` step redirects the user's browser here (`/connect/mcp`) to log in and consent - distinct from `STUDYLIFE_BASE_URL`, which the browser never talks to. |
-| `MCP_TOKEN_ENCRYPTION_KEY` | *(HTTP mode only)* Fernet key encrypting each user's StudyLife API key at rest in the OAuth store. |
+| `STUDYLIFE_CONNECT_URL` | *(HTTP mode only)* StudyAtrium's own public/browser-facing base URL. The OAuth `authorize()` step redirects the user's browser here (`/connect/mcp`) to log in and consent - distinct from `STUDYLIFE_BASE_URL`, which the browser never talks to. |
+| `MCP_TOKEN_ENCRYPTION_KEY` | *(HTTP mode only)* Fernet key encrypting each user's StudyAtrium API key at rest in the OAuth store. |
 | `MCP_OAUTH_DB_PATH` | *(HTTP mode only)* SQLite file for OAuth clients/tokens/per-user keys. Default `oauth.db`. |
 | `MCP_HTTP_HOST` / `MCP_HTTP_PORT` | *(HTTP mode only)* Bind address. Defaults `127.0.0.1:8000` (`0.0.0.0` inside Docker). |
 
@@ -254,7 +256,7 @@ and a real Tailscale-side incident hit along the way.
 | `create_session` | Writes. Creates a new study session/calendar entry for a course and time range; `is_completed` can log a session retroactively. |
 
 All tools are available identically on both transports. In HTTP+OAuth mode,
-each call runs against whichever StudyLife account the caller's access token
+each call runs against whichever StudyAtrium account the caller's access token
 belongs to (see [Architecture](#architecture)). Every free-text field returned
 (note title/content, session topic/notes, course-goal completion note) is
 flagged in its tool's description as user-authored data, not instructions.
@@ -271,17 +273,17 @@ flagged in its tool's description as user-authored data, not instructions.
 - **Per-user isolation in HTTP mode, fails closed**: `StudyLifeClientResolver`
   raises `PermissionError` instead of falling back to the `.env` account
   whenever HTTP mode is configured and the request isn't properly bound to a
-  StudyLife account — a missing/subjectless access token, or a valid token
+  StudyAtrium account — a missing/subjectless access token, or a valid token
   whose subject has no stored key. `STUDYLIFE_API_KEY` is only required for
   stdio mode as a result; a pure-HTTP deployment can leave it unset.
-- **OAuth subject is the real StudyLife user id**, not a hash of the API key —
+- **OAuth subject is the real StudyAtrium user id**, not a hash of the API key —
   every new connect binds tokens to `str(userId)` from the assertion exchange
   (see [Architecture](#architecture)). Grants made before this change keep
   their old `sha256(key)` subject and keep resolving untouched; they are not
   migrated.
-- **StudyLife keys are encrypted, not just hashed**, in the OAuth store — this
-  server needs the plaintext back to call StudyLife on the user's behalf,
-  unlike StudyLife's own key storage (hash-only, StudyLife itself never sees
+- **StudyAtrium keys are encrypted, not just hashed**, in the OAuth store — this
+  server needs the plaintext back to call StudyAtrium on the user's behalf,
+  unlike StudyAtrium's own key storage (hash-only, StudyAtrium itself never sees
   the plaintext again after generation).
 - **Hardened dynamic client registration**: `POST /register` is unauthenticated
   by protocol design (RFC 7591 — any MCP client self-registers with no prior
@@ -314,8 +316,8 @@ flagged in its tool's description as user-authored data, not instructions.
   scanner. Limited per-token (not per-IP, since identity already exists once
   authenticated) to 300 requests/hour, generous over realistic usage.
 - **Connected-apps self-service, internal-only**: `/connected-apps` lets a
-  StudyLife user see which OAuth clients hold a live refresh token for their
-  account and revoke one — gated by re-entering a real StudyLife key (not
+  StudyAtrium user see which OAuth clients hold a live refresh token for their
+  account and revoke one — gated by re-entering a real StudyAtrium key (not
   trusting the already-issued token). Deliberately unreachable from the
   public Tailscale Funnel URL: its `Ingress` uses an explicit path allowlist
   rather than a `defaultBackend`, so `/connected-apps` 404s at the ingress
@@ -353,7 +355,7 @@ uv run pytest
 ## Roadmap
 
 - [x] **S1** — Scaffold, `list_courses` over stdio, verified end-to-end in Claude Desktop.
-- [x] **S2** — Remaining StudyLife read tools (notes, sessions, course goals), camelCase-alias DTOs, contract tests.
+- [x] **S2** — Remaining StudyAtrium read tools (notes, sessions, course goals), camelCase-alias DTOs, contract tests.
 - [x] **S3** — Write tools (`create_note`, `create_session`), dedicated `McpApiKeyHash` key slot, structured audit log.
 - [x] **S4** — Streamable HTTP transport, self-built OAuth 2.1 authorization server (multi-user), non-root Docker image, verified [MCP Inspector](docs/mcp-inspector.md) run.
 - [x] Production deployment to a real K3s cluster via Flux CD GitOps (see [k8s/](k8s/)), lktec-bot release module + Docker-publish CI pipeline.
@@ -369,12 +371,12 @@ uv run pytest
 | Server | Python 3.12, official MCP Python SDK (`mcp` â‰¥2.0) |
 | HTTP client | `httpx`, verified against the OS certificate store (`truststore`) or a custom CA (`STUDYLIFE_CA_CERT_PATH`) |
 | Config | `pydantic-settings` + `.env` |
-| OAuth store | `aiosqlite`, StudyLife keys encrypted at rest with `cryptography.fernet` |
-| Tests | `pytest` + `respx` (HTTP mocking) + an ASGI test client for the OAuth/StudyLife-connect routes |
+| OAuth store | `aiosqlite`, StudyAtrium keys encrypted at rest with `cryptography.fernet` |
+| Tests | `pytest` + `respx` (HTTP mocking) + an ASGI test client for the OAuth/StudyAtrium-connect routes |
 | Metrics | `prometheus-client`, scraped by the author's own self-hosted Prometheus |
 | CI/CD | GitHub Actions (`ruff`, `mypy --strict`, `pytest`, lktec-bot release module, multi-arch Docker publish to GHCR, Trivy scan) |
 | Deployment | Docker (non-root) Â· Kubernetes (K3s) via Flux CD GitOps, see [k8s/](k8s/) Â· public exposure via Tailscale Funnel |
 
 ## License
 
-[AGPL-3.0](LICENSE), matching the main [StudyLife](https://github.com/lukislp/studylife) repository.
+[AGPL-3.0](LICENSE), matching the main [StudyAtrium](https://github.com/lukislp/studylife) repository.

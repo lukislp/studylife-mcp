@@ -127,7 +127,7 @@ async def test_resolve_legacy_sha256_subject_still_resolves(
     settings: Settings, store: OAuthStore, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Pre-identity-contract grants have subject = sha256(api key) (OAuthStore.
-    subject_for_key), not a StudyLife userId - client_resolver treats subject as an
+    subject_for_key), not a StudyAtrium userId - client_resolver treats subject as an
     opaque string, so these old grants must keep resolving untouched, unmigrated."""
     legacy_subject = OAuthStore.subject_for_key("some-legacy-studylife-key")
     await store.save_user_key(legacy_subject, "some-legacy-studylife-key")
