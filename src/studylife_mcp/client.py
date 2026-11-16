@@ -54,6 +54,14 @@ class StudyLifeClient:
             )
         return response
 
+    async def whoami(self) -> int:
+        """The StudyLife user id behind this client's key (identity contract v1 section 1,
+        `GET /api/auth/whoami`, reachable by every key slot). Raises httpx.HTTPError for a
+        rejected key or an unreachable server, ValueError/KeyError/TypeError for an
+        unexpected response shape."""
+        response = await self._request("GET", "/api/auth/whoami")
+        return int(response.json()["userId"])
+
     async def list_courses(self) -> list[Course]:
         response = await self._request("GET", "/api/courses")
         return [Course.model_validate(item) for item in response.json()]

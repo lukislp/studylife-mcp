@@ -12,6 +12,7 @@ from mcp.server.auth.provider import (
     AuthorizationParams,
     OAuthAuthorizationServerProvider,
     RefreshToken,
+    RegistrationError,
     construct_redirect_uri,
 )
 from mcp.server.mcpserver import MCPServer
@@ -21,8 +22,18 @@ from starlette.responses import HTMLResponse, RedirectResponse, Response
 
 from studylife_mcp.client import StudyLifeClient, exchange_mcp_assertion
 from studylife_mcp.config import Settings
+from studylife_mcp.consent import (
+    BROWSER_BINDING_COOKIE,
+    BROWSER_BINDING_COOKIE_PATH,
+    browser_binding_hash,
+    describe_redirect_target,
+    is_allowed_redirect_uri,
+    new_browser_binding,
+    new_csrf_token,
+)
 from studylife_mcp.oauth_store import (
     MANAGEMENT_SESSION_TTL_SECONDS,
+    PENDING_AUTH_TTL_SECONDS,
     ConnectedClient,
     OAuthStore,
 )
@@ -63,12 +74,12 @@ class StudyLifeOAuthProvider(
     (`str(userId)`), not a hash of the key - see the `/auth/studylife/callback` route in
     `register_oauth_routes` below, where the exchange and the subject binding happen.
     Older grants made before this change have subject = sha256(key)
-    (`OAuthStore.subject_for_key`, still used by `/connected-apps`'s own key-based
-    re-auth) and keep resolving untouched; only new logins get a userId subject.
+    (`OAuthStore.subject_for_key`) and keep resolving untouched; only new logins get a
+    userId subject.
 
-    `authorize()` only returns a redirect URL, per the protocol - the actual
-    login/consent UI lives entirely on StudyLife's side now, reached via the routes in
-    `register_oauth_routes` below.
+    `authorize()` only returns a redirect URL, per the protocol - it points at this
+    server's own consent page (`/auth/consent`, browser-bound, see consent.py), which
+    continues to StudyLife's login only after an approval from the same browser.
     """
 
     def __init__(self, store: OAuthStore, public_url: str, connect_url: str) -> None:
@@ -82,19 +93,41 @@ class StudyLifeOAuthProvider(
         return await self._store.get_client(client_id)
 
     async def register_client(self, client_info: OAuthClientInformationFull) -> None:
+        # The SDK accepts any absolute URL as a redirect URI; narrow that before the
+        # client is stored (audit 2026-11-16 H2, see consent.is_allowed_redirect_uri).
+        rejected = [
+            str(uri)
+            for uri in client_info.redirect_uris or []
+            if not is_allowed_redirect_uri(str(uri))
+        ]
+        if rejected:
+            raise RegistrationError(
+                error="invalid_redirect_uri",
+                error_description=(
+                    "redirect_uris must use https, http on a loopback host, or a native "
+                    f"app's private-use scheme: {', '.join(rejected)}"
+                ),
+            )
         await self._store.register_client(client_info)
 
     async def authorize(
         self, client: OAuthClientInformationFull, params: AuthorizationParams
     ) -> str:
         # request_id doubles as the "state" StudyLife echoes back on
-        # /auth/studylife/callback - same round-trip mechanics the old /login form used
-        # (a pending_auth row keyed by an opaque id), just carried via a query param
-        # through StudyLife instead of a form post to this server.
+        # /auth/studylife/callback. The browser first lands on this server's own consent
+        # page (/auth/consent, audit 2026-11-16 H2), which binds the request to that
+        # browser and shows which client and redirect host are asking; only an approval
+        # there continues to StudyLife (studylife_connect_url below).
         request_id = secrets.token_urlsafe(24)
         await self._store.save_pending_authorization(
             request_id, client.client_id, params.model_dump_json()
         )
+        return f"{self._public_url}/auth/consent?{urlencode({'request_id': request_id})}"
+
+    def studylife_connect_url(self, request_id: str) -> str:
+        """Where an approved consent continues: StudyLife's /connect/mcp page
+        (identity-contract-v1 section 2 step 1), which logs the user in and redirects
+        back to /auth/studylife/callback with an assertion and `request_id` as state."""
         callback_url = f"{self._public_url}/auth/studylife/callback"
         query = urlencode({"redirect_uri": callback_url, "state": request_id})
         return f"{self._connect_url}/connect/mcp?{query}"
@@ -256,6 +289,20 @@ _PAGE_STYLE = """
   .app-row:first-of-type { border-top: none; }
   .app-name { font-size: 0.9rem; font-weight: 500; }
   .app-expires { font-size: 0.75rem; color: var(--text3); margin-top: 2px; }
+  .consent-detail {
+    background: var(--bg3); border: 1px solid var(--border); border-radius: 8px;
+    padding: 0.75rem 0.875rem; margin: 1rem 0 1.25rem; font-size: 0.85rem;
+  }
+  .consent-detail dt { color: var(--text3); font-size: 0.7rem; text-transform: uppercase;
+    letter-spacing: 0.08em; }
+  .consent-detail dd { margin: 0.15rem 0 0.6rem; word-break: break-all; }
+  .consent-detail dd:last-child { margin-bottom: 0; }
+  .consent-actions { display: flex; gap: 0.75rem; }
+  .btn-secondary {
+    background: transparent; color: var(--text2); border: 1px solid var(--border2);
+    border-radius: 8px; padding: 0.65rem 1.25rem; font-size: 0.875rem; font-family: var(--font);
+    cursor: pointer; transition: var(--transition); width: 100%;
+  }
 """
 
 _BRAND_HTML = (
@@ -264,20 +311,24 @@ _BRAND_HTML = (
 )
 
 
-async def _validate_studylife_key(settings: Settings, api_key: str) -> bool:
-    """Used by /connected-apps: proves the caller owns a StudyLife account by checking
-    the key actually works against the real instance. The main connect flow no longer
-    needs this - StudyLife itself verifies the session before issuing an assertion -
-    but /connected-apps still re-proves ownership with a raw key (see its routes
-    below), so this stays."""
+async def _resolve_key_subject(settings: Settings, api_key: str) -> str | None:
+    """Used by /connected-apps: proves the caller owns a StudyLife account and returns
+    the OAuth subject that account's grants carry - `str(userId)`, the same value the
+    connect flow binds tokens to (/auth/studylife/callback below). Returns None when
+    StudyLife rejects the key or can't be reached.
+
+    This used to return sha256(key), which no grant made through the connect flow ever
+    carries, so the page listed nothing and nothing could be revoked (audit 2026-11-16,
+    H2 "Related"). Grants from before the connect flow (subject = sha256(key)) are not
+    listed anymore: they only keep working while the key they were made with is still
+    the account's current MCP key, and every connect since then rotated it."""
     candidate = StudyLifeClient(settings.model_copy(update={"studylife_api_key": api_key}))
     try:
-        await candidate.list_courses()
-    except httpx.HTTPError:
-        return False
+        return str(await candidate.whoami())
+    except (httpx.HTTPError, KeyError, TypeError, ValueError):
+        return None
     finally:
         await candidate.aclose()
-    return True
 
 
 _EXPIRED_LINK_HTML = f"""<!doctype html>
@@ -316,6 +367,92 @@ _CONNECT_FAILED_HTML = f"""<!doctype html>
 </body>
 </html>
 """
+
+_OTHER_BROWSER_HTML = f"""<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Connection not confirmed &mdash; StudyLife</title>
+<style>{_PAGE_STYLE}</style>
+</head>
+<body>
+<div class="card">
+{_BRAND_HTML}
+<h1>Connection not confirmed</h1>
+<p>This connection was not approved in this browser. If you did not start it
+yourself from your own MCP client, someone may be trying to get access to your
+account - do not continue. Otherwise, restart the connection from your MCP client.</p>
+</div>
+</body>
+</html>
+"""
+
+# The consent page is one click away from granting access, so it must never render
+# inside someone else's frame (clickjacking), and neither it nor its request_id should
+# be cached or leak via Referer.
+_CONSENT_PAGE_HEADERS = {
+    "X-Frame-Options": "DENY",
+    "Content-Security-Policy": "frame-ancestors 'none'",
+    "Cache-Control": "no-store",
+    "Referrer-Policy": "no-referrer",
+}
+
+
+def _render_consent_page(
+    *, request_id: str, csrf_token: str, client_name: str, redirect_target: str
+) -> str:
+    request_id_html = html.escape(request_id)
+    csrf_html = html.escape(csrf_token)
+    return f"""<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Allow access? &mdash; StudyLife</title>
+<style>{_PAGE_STYLE}</style>
+</head>
+<body>
+<div class="card">
+{_BRAND_HTML}
+<h1>Allow access to your StudyLife account?</h1>
+<p>An app wants to read your notes, sessions and goals and create notes and sessions
+on your behalf.</p>
+<dl class="consent-detail">
+  <dt>App (name chosen by the app itself)</dt>
+  <dd>{html.escape(client_name)}</dd>
+  <dt>Access will be sent to</dt>
+  <dd>{html.escape(redirect_target)}</dd>
+</dl>
+<p class="hint">Only continue if you just started this connection yourself from your
+own MCP client and you recognize the address above. If someone sent you this link,
+deny.</p>
+<form method="post" action="/auth/consent" class="consent-actions">
+  <input type="hidden" name="request_id" value="{request_id_html}">
+  <input type="hidden" name="csrf_token" value="{csrf_html}">
+  <button class="btn-secondary" type="submit" name="decision" value="deny">Deny</button>
+  <button class="btn-primary" type="submit" name="decision" value="approve">Continue</button>
+</form>
+</div>
+</body>
+</html>
+"""
+
+
+def _browser_binding(request: Request) -> str | None:
+    return request.cookies.get(BROWSER_BINDING_COOKIE) or None
+
+
+def _set_browser_binding_cookie(response: Response, binding: str) -> None:
+    response.set_cookie(
+        BROWSER_BINDING_COOKIE,
+        binding,
+        max_age=PENDING_AUTH_TTL_SECONDS,
+        path=BROWSER_BINDING_COOKIE_PATH,
+        secure=True,
+        httponly=True,
+        samesite="lax",
+    )
 
 
 def _format_expiry(expires_at: float | None) -> str:
@@ -416,14 +553,81 @@ out immediately - it has to go through login again to reconnect.</p>
 """
 
 
-def register_oauth_routes(mcp: MCPServer, store: OAuthStore, settings: Settings) -> None:
-    """Registers the custom route the `authorize()` redirect's round trip needs, plus
-    the self-service connected-apps pages. Kept separate from the
-    OAuthAuthorizationServerProvider Protocol methods above - this is the specific piece
-    that would change again if login were ever federated to a different IdP."""
+def register_oauth_routes(
+    mcp: MCPServer,
+    store: OAuthStore,
+    settings: Settings,
+    provider: StudyLifeOAuthProvider,
+) -> None:
+    """Registers the custom routes the `authorize()` redirect's round trip needs (the
+    consent page and the StudyLife callback), plus the self-service connected-apps
+    pages. Kept separate from the OAuthAuthorizationServerProvider Protocol methods
+    above - this is the specific piece that would change again if login were ever
+    federated to a different IdP."""
 
     # Unlike @mcp.tool(), the SDK's custom_route() has no return-type annotation,
     # so mypy can't see through it - narrow, sanctioned suppression.
+
+    # Consent step (audit 2026-11-16 H2, rules in consent.py): authorize() sends the
+    # browser here first. Opening the page binds the pending authorization to this
+    # browser (first browser wins) and shows which client and redirect host would get
+    # access; only an approval POSTed from the same browser continues to StudyLife.
+    @mcp.custom_route("/auth/consent", methods=["GET"])  # type: ignore[untyped-decorator]
+    async def consent_view(request: Request) -> Response:
+        request_id = request.query_params.get("request_id", "")
+        pending = await store.load_pending_authorization(request_id)
+        client = await store.get_client(pending[0]) if pending is not None else None
+        if pending is None or client is None:
+            return HTMLResponse(_EXPIRED_LINK_HTML, status_code=400)
+
+        binding = _browser_binding(request) or new_browser_binding()
+        csrf_token = await store.bind_pending_authorization(
+            request_id, browser_binding_hash(binding), new_csrf_token()
+        )
+        if csrf_token is None:
+            # Already opened (and bound) in another browser - possibly the attacker's
+            # own, who is now trying to get someone else to approve it.
+            return HTMLResponse(_OTHER_BROWSER_HTML, status_code=403, headers=_CONSENT_PAGE_HEADERS)
+
+        params = AuthorizationParams.model_validate_json(pending[1])
+        page = _render_consent_page(
+            request_id=request_id,
+            csrf_token=csrf_token,
+            client_name=client.client_name or client.client_id,
+            redirect_target=describe_redirect_target(str(params.redirect_uri)),
+        )
+        response = HTMLResponse(page, headers=_CONSENT_PAGE_HEADERS)
+        _set_browser_binding_cookie(response, binding)
+        return response
+
+    @mcp.custom_route("/auth/consent", methods=["POST"])  # type: ignore[untyped-decorator]
+    async def consent_decide(request: Request) -> Response:
+        form = await request.form()
+        request_id = str(form.get("request_id", ""))
+        csrf_token = str(form.get("csrf_token", ""))
+        decision = str(form.get("decision", ""))
+        binding = _browser_binding(request)
+        if binding is None:
+            return HTMLResponse(_OTHER_BROWSER_HTML, status_code=403)
+        binding_hash = browser_binding_hash(binding)
+
+        if decision == "approve":
+            if not await store.approve_pending_authorization(request_id, binding_hash, csrf_token):
+                return HTMLResponse(_OTHER_BROWSER_HTML, status_code=403)
+            return RedirectResponse(provider.studylife_connect_url(request_id), status_code=303)
+
+        if decision == "deny":
+            denied = await store.deny_pending_authorization(request_id, binding_hash, csrf_token)
+            if denied is None:
+                return HTMLResponse(_OTHER_BROWSER_HTML, status_code=403)
+            params = AuthorizationParams.model_validate_json(denied[1])
+            # RFC 6749 section 4.1.2.1: tell the client the user said no.
+            redirect_url = construct_redirect_uri(
+                str(params.redirect_uri), error="access_denied", state=params.state
+            )
+            return RedirectResponse(redirect_url, status_code=303)
+
+        return HTMLResponse(_EXPIRED_LINK_HTML, status_code=400)
 
     # Completes the connect flow authorize() started (identity-contract-v1 section 2 step
     # 5): StudyLife's /connect/mcp redirects the browser back here once the user has
@@ -434,9 +638,20 @@ def register_oauth_routes(mcp: MCPServer, store: OAuthStore, settings: Settings)
         state = request.query_params.get("state", "")
         assertion = request.query_params.get("assertion", "")
 
-        pending = await store.load_pending_authorization(state)
+        # Only a request approved on the consent page by THIS browser can complete
+        # (audit 2026-11-16 H2) - a state lifted from someone else's flow, or one that
+        # skipped the consent page, never yields a code. Checked before the assertion
+        # is redeemed, so it isn't spent either.
+        binding = _browser_binding(request)
+        pending = (
+            await store.load_approved_pending_authorization(state, browser_binding_hash(binding))
+            if binding is not None
+            else None
+        )
         if pending is None:
-            return HTMLResponse(_EXPIRED_LINK_HTML, status_code=400)
+            if await store.load_pending_authorization(state) is None:
+                return HTMLResponse(_EXPIRED_LINK_HTML, status_code=400)
+            return HTMLResponse(_OTHER_BROWSER_HTML, status_code=403)
         client_id, params_json = pending
 
         if not assertion:
@@ -477,7 +692,7 @@ def register_oauth_routes(mcp: MCPServer, store: OAuthStore, settings: Settings)
     # Deliberately NOT reachable via the public Tailscale Funnel route (see
     # k8s/07-tailscale-funnel.yaml's path allowlist, which omits /connected-apps) - only
     # from the tailnet/LAN-only studylife-mcp.heim.lan route. Re-proves ownership with a
-    # real StudyLife key (still validated the old way, see _validate_studylife_key)
+    # real StudyLife key (resolved to its user id, see _resolve_key_subject)
     # rather than trusting anything from the already-revealed access token, since the
     # whole point of this page is to let someone audit/undo access even if a token were
     # compromised.
@@ -517,7 +732,8 @@ def register_oauth_routes(mcp: MCPServer, store: OAuthStore, settings: Settings)
                 _render_connected_apps_login_page(error="Please enter your StudyLife MCP API key."),
                 status_code=400,
             )
-        if not await _validate_studylife_key(settings, api_key):
+        subject = await _resolve_key_subject(settings, api_key)
+        if subject is None:
             return HTMLResponse(
                 _render_connected_apps_login_page(
                     error="StudyLife rejected this key (or couldn't be reached). "
@@ -526,7 +742,6 @@ def register_oauth_routes(mcp: MCPServer, store: OAuthStore, settings: Settings)
                 status_code=401,
             )
 
-        subject = store.subject_for_key(api_key)
         # csrf_token isn't needed here - it travels only as far as the GET this redirect
         # lands on, which fetches it fresh (load_management_session_csrf_token below).
         session_id, _csrf_token = await store.create_management_session(subject)

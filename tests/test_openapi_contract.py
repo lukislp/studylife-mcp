@@ -90,13 +90,9 @@ def spec_schemas(spec: dict[str, Any]) -> dict[str, Any]:
 # (method, path, caller) - path is the exact template client.py sends; none of
 # these StudyLife routes take path parameters, so no {id}-style placeholders are
 # needed here.
-#
-# /api/auth/whoami is deliberately NOT in this list: grepping client.py,
-# oauth_provider.py, client_resolver.py and server.py turns up no call to it
-# anywhere in this repo (_validate_studylife_key re-proves key ownership via
-# list_courses, not a whoami call) - there's nothing to check drift against yet.
-# Add it here the moment client.py actually starts calling it.
+
 CLIENT_ENDPOINTS: list[tuple[str, str, str]] = [
+    ("get", "/api/auth/whoami", "StudyLifeClient.whoami"),
     ("get", "/api/courses", "StudyLifeClient.list_courses"),
     ("get", "/api/notes", "StudyLifeClient.list_notes"),
     ("get", "/api/notes/search", "StudyLifeClient.search_notes"),

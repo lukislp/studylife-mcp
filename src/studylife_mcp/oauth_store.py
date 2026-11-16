@@ -1,4 +1,5 @@
 import hashlib
+import hmac
 import logging
 import secrets
 import time
@@ -24,6 +25,17 @@ class ConnectedClient:
     client_id: str
     client_name: str
     expires_at: float | None
+
+
+@dataclass(frozen=True)
+class _ConsentRow:
+    """A live pending authorization that a browser has been bound to (consent.py)."""
+
+    client_id: str
+    params_json: str
+    binding_hash: str
+    csrf_token: str
+    approved_at: float | None
 
 
 _SCHEMA = """
@@ -162,6 +174,15 @@ class OAuthStore:
             except aiosqlite.OperationalError as exc:
                 if "duplicate column name" not in str(exc):
                     raise
+            # Consent + browser binding for pending authorizations (audit 2026-11-16 H2,
+            # see consent.py). A row from before this change has NULLs here and can
+            # therefore never be approved - it simply expires.
+            for column in ("binding_hash TEXT", "csrf_token TEXT", "approved_at REAL"):
+                try:
+                    await conn.execute(f"ALTER TABLE pending_auth ADD COLUMN {column}")
+                except aiosqlite.OperationalError as exc:
+                    if "duplicate column name" not in str(exc):
+                        raise
             await conn.commit()
 
     # --- clients (RFC 7591 dynamic client registration) ---
@@ -303,6 +324,108 @@ class OAuthStore:
         async with self._connection() as conn:
             await conn.execute("DELETE FROM pending_auth WHERE request_id = ?", (request_id,))
             await conn.commit()
+
+    # --- consent + browser binding for pending authorizations (consent.py, audit H2) ---
+
+    async def bind_pending_authorization(
+        self, request_id: str, binding_hash: str, csrf_token: str
+    ) -> str | None:
+        """Binds a pending authorization to one browser. The first browser to open the
+        consent page wins: the binding is only written while the row has none, so a
+        link already opened elsewhere can't be taken over by whoever opens it next.
+        Returns the consent form's CSRF token when the row is (now) bound to
+        `binding_hash`, or None if the request is unknown, expired, or bound to another
+        browser. `csrf_token` is only stored on the first binding; a re-render from the
+        same browser gets the stored one back."""
+        cutoff = time.time() - PENDING_AUTH_TTL_SECONDS
+        async with self._connection() as conn:
+            await conn.execute(
+                "UPDATE pending_auth SET binding_hash = ?, csrf_token = ? "
+                "WHERE request_id = ? AND binding_hash IS NULL AND created_at >= ?",
+                (binding_hash, csrf_token, request_id, cutoff),
+            )
+            await conn.commit()
+        row = await self._load_consent_row(request_id)
+        if row is None or not hmac.compare_digest(row.binding_hash, binding_hash):
+            return None
+        return row.csrf_token
+
+    async def approve_pending_authorization(
+        self, request_id: str, binding_hash: str, csrf_token: str
+    ) -> bool:
+        """Records consent. Only succeeds from the bound browser with the CSRF token
+        that was rendered into that browser's consent form, while the request is live."""
+        if not await self._consent_proof_matches(request_id, binding_hash, csrf_token):
+            return False
+        async with self._connection() as conn:
+            await conn.execute(
+                "UPDATE pending_auth SET approved_at = ? WHERE request_id = ?",
+                (time.time(), request_id),
+            )
+            await conn.commit()
+        return True
+
+    async def deny_pending_authorization(
+        self, request_id: str, binding_hash: str, csrf_token: str
+    ) -> tuple[str, str] | None:
+        """Consumes the pending authorization on an explicit "deny" from the bound
+        browser. Returns (client_id, params_json) so the caller can send the client its
+        access_denied error, or None if the request can't be acted on from here."""
+        if not await self._consent_proof_matches(request_id, binding_hash, csrf_token):
+            return None
+        pending = await self.load_pending_authorization(request_id)
+        await self.delete_pending_authorization(request_id)
+        return pending
+
+    async def load_approved_pending_authorization(
+        self, request_id: str, binding_hash: str
+    ) -> tuple[str, str] | None:
+        """Like load_pending_authorization, but only for a request that this same
+        browser approved on the consent page. The StudyLife callback uses this, so a
+        `state` that was never approved here, or was approved in another browser, never
+        yields an authorization code."""
+        row = await self._load_consent_row(request_id)
+        if row is None or row.approved_at is None:
+            return None
+        if not hmac.compare_digest(row.binding_hash, binding_hash):
+            return None
+        return row.client_id, row.params_json
+
+    async def _consent_proof_matches(
+        self, request_id: str, binding_hash: str, csrf_token: str
+    ) -> bool:
+        row = await self._load_consent_row(request_id)
+        if row is None:
+            return False
+        # Both compared in constant time, and both always evaluated.
+        hash_ok = hmac.compare_digest(row.binding_hash, binding_hash)
+        csrf_ok = hmac.compare_digest(row.csrf_token, csrf_token)
+        return hash_ok and csrf_ok
+
+    async def _load_consent_row(self, request_id: str) -> _ConsentRow | None:
+        """The live, browser-bound pending authorization, or None if it is unknown,
+        expired, or not bound to any browser yet."""
+        async with self._connection() as conn:
+            cursor = await conn.execute(
+                "SELECT client_id, params_json, created_at, binding_hash, csrf_token, "
+                "approved_at FROM pending_auth WHERE request_id = ?",
+                (request_id,),
+            )
+            row = await cursor.fetchone()
+        if row is None:
+            return None
+        client_id, params_json, created_at, binding_hash, csrf_token, approved_at = row
+        if created_at < time.time() - PENDING_AUTH_TTL_SECONDS:
+            return None
+        if binding_hash is None or csrf_token is None:
+            return None
+        return _ConsentRow(
+            client_id=str(client_id),
+            params_json=str(params_json),
+            binding_hash=str(binding_hash),
+            csrf_token=str(csrf_token),
+            approved_at=approved_at,
+        )
 
     # --- authorization codes ---
 

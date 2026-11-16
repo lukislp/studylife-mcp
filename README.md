@@ -294,6 +294,20 @@ flagged in its tool's description as user-authored data, not instructions.
   don't linger on the dashboard during quiet periods. See
   [docs/decisions.md](docs/decisions.md) for what this does and doesn't
   protect against.
+- **Consent on this server, bound to one browser**: because registration is
+  open, anyone can register a client with their own redirect URI. So
+  `/authorize` first lands on this server's `/auth/consent` page, which names
+  the client and the host that will receive access. Opening it binds the
+  request to that browser (HttpOnly, Secure, SameSite=Lax cookie; first
+  browser wins). Only an approval from that browser (CSRF-protected POST)
+  continues to StudyLife's login, and the StudyLife callback only issues a
+  code to that same browser. A link sent to someone else can't hand an
+  authorization code to the sender's client unless that person sees and
+  approves the client and its redirect host first. Registration also rejects
+  redirect URIs that are plain `http` to a non-loopback host or use
+  script/data/file schemes. `/connected-apps` resolves the entered key to the
+  StudyLife user id (`GET /api/auth/whoami`), the same subject the connect
+  flow binds grants to, so current grants are listed and can be revoked.
 - **Rate-limited tool calls**: `POST /mcp` is already authenticated (a valid
   Bearer token is required), so this isn't about anonymous abuse — it bounds
   a legitimate-but-buggy or compromised client (a runaway loop) rather than a
