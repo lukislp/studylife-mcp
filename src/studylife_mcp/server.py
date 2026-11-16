@@ -47,10 +47,11 @@ if (
     _oauth_store = OAuthStore(_settings.mcp_oauth_db_path, _settings.mcp_token_encryption_key)
     _public_url = str(_settings.mcp_public_url)
     _connect_url = str(_settings.studylife_connect_url)
+    _provider = StudyLifeOAuthProvider(_oauth_store, _public_url, _connect_url)
     mcp = MCPServer(
         "studylife-mcp",
         title="StudyAtrium MCP",
-        auth_server_provider=StudyLifeOAuthProvider(_oauth_store, _public_url, _connect_url),
+        auth_server_provider=_provider,
         auth=AuthSettings(
             issuer_url=_settings.mcp_public_url,
             resource_server_url=_settings.mcp_public_url,
@@ -61,7 +62,7 @@ if (
             required_scopes=[SCOPE],
         ),
     )
-    register_oauth_routes(mcp, _oauth_store, _settings)
+    register_oauth_routes(mcp, _oauth_store, _settings, _provider)
 else:
     mcp = MCPServer("studylife-mcp", title="StudyAtrium MCP")
 

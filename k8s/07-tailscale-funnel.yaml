@@ -24,7 +24,9 @@
 # StudyLife connect-flow callback) are reachable from the public internet. /login is gone
 # (replaced by the StudyLife-hosted connect flow, identity-contract-v1 section 2) in favor
 # of /auth/studylife/callback, which the user's browser must reach directly from StudyLife's
-# public redirect - it can't go through the tailnet/LAN-only route below.
+# public redirect - it can't go through the tailnet/LAN-only route below. /auth/consent is
+# the consent page authorize() sends the browser to first (audit 2026-11-16 H2), so it has
+# to be public too.
 # /connected-apps (the self-service "revoke a client's access"
 # page, oauth_provider.py) is deliberately absent - it stays reachable only via
 # k8s/06-httproute.yaml's studylife-mcp.heim.lan route (tailnet/LAN only), since it lets a
@@ -64,6 +66,9 @@ spec:
             pathType: Prefix
             backend: {service: {name: studylife-mcp, port: {number: 8000}}}
           - path: /revoke
+            pathType: Prefix
+            backend: {service: {name: studylife-mcp, port: {number: 8000}}}
+          - path: /auth/consent
             pathType: Prefix
             backend: {service: {name: studylife-mcp, port: {number: 8000}}}
           - path: /auth/studylife/callback

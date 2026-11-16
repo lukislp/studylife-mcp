@@ -716,3 +716,75 @@ async def test_revoke_client_access_deletes_only_that_subjects_tokens(store: OAu
     assert await store.load_refresh_token("refresh-shared-client-alice") is None
     assert await store.load_access_token("access-shared-client-bob") is not None
     assert await store.load_refresh_token("refresh-shared-client-bob") is not None
+
+
+# --- consent + browser binding (audit 2026-11-16 H2) ---
+
+
+async def test_bind_pending_authorization_first_browser_wins(store: OAuthStore) -> None:
+    await store.save_pending_authorization("req-1", "client-1", "{}")
+
+    first = await store.bind_pending_authorization("req-1", "hash-a", "csrf-a")
+    again = await store.bind_pending_authorization("req-1", "hash-a", "csrf-other")
+    other = await store.bind_pending_authorization("req-1", "hash-b", "csrf-b")
+
+    assert first == "csrf-a"
+    assert again == "csrf-a"  # same browser re-renders with the stored token
+    assert other is None
+
+
+async def test_bind_unknown_pending_authorization_returns_none(store: OAuthStore) -> None:
+    assert await store.bind_pending_authorization("nope", "hash-a", "csrf-a") is None
+
+
+async def test_approval_requires_binding_and_csrf(store: OAuthStore) -> None:
+    await store.save_pending_authorization("req-1", "client-1", '{"state": "xyz"}')
+    await store.bind_pending_authorization("req-1", "hash-a", "csrf-a")
+
+    assert await store.load_approved_pending_authorization("req-1", "hash-a") is None
+    assert not await store.approve_pending_authorization("req-1", "hash-b", "csrf-a")
+    assert not await store.approve_pending_authorization("req-1", "hash-a", "wrong")
+    assert await store.load_approved_pending_authorization("req-1", "hash-a") is None
+
+    assert await store.approve_pending_authorization("req-1", "hash-a", "csrf-a")
+    assert await store.load_approved_pending_authorization("req-1", "hash-a") == (
+        "client-1",
+        '{"state": "xyz"}',
+    )
+    assert await store.load_approved_pending_authorization("req-1", "hash-b") is None
+
+
+async def test_unbound_pending_authorization_cannot_be_approved(store: OAuthStore) -> None:
+    await store.save_pending_authorization("req-1", "client-1", "{}")
+
+    assert not await store.approve_pending_authorization("req-1", "hash-a", "csrf-a")
+
+
+async def test_deny_consumes_only_from_bound_browser(store: OAuthStore) -> None:
+    await store.save_pending_authorization("req-1", "client-1", "{}")
+    await store.bind_pending_authorization("req-1", "hash-a", "csrf-a")
+
+    assert await store.deny_pending_authorization("req-1", "hash-b", "csrf-a") is None
+    assert await store.load_pending_authorization("req-1") is not None
+    assert await store.deny_pending_authorization("req-1", "hash-a", "csrf-a") == ("client-1", "{}")
+    assert await store.load_pending_authorization("req-1") is None
+
+
+async def test_expired_pending_authorization_cannot_be_bound_or_approved(
+    store: OAuthStore,
+) -> None:
+    import studylife_mcp.oauth_store as oauth_store_module
+
+    await store.save_pending_authorization("req-1", "client-1", "{}")
+    await store.bind_pending_authorization("req-1", "hash-a", "csrf-a")
+    await store.approve_pending_authorization("req-1", "hash-a", "csrf-a")
+
+    original_ttl = oauth_store_module.PENDING_AUTH_TTL_SECONDS
+    oauth_store_module.PENDING_AUTH_TTL_SECONDS = -1
+    try:
+        assert await store.load_approved_pending_authorization("req-1", "hash-a") is None
+        assert not await store.approve_pending_authorization("req-1", "hash-a", "csrf-a")
+        await store.save_pending_authorization("req-2", "client-1", "{}")
+        assert await store.bind_pending_authorization("req-2", "hash-a", "csrf-a") is None
+    finally:
+        oauth_store_module.PENDING_AUTH_TTL_SECONDS = original_ttl

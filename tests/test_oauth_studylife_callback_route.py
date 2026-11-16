@@ -46,7 +46,7 @@ async def app_client(store: OAuthStore, settings: Settings):
             required_scopes=[SCOPE],
         ),
     )
-    register_oauth_routes(mcp, store, settings)
+    register_oauth_routes(mcp, store, settings, provider)
     app = mcp.streamable_http_app()
     transport = httpx.ASGITransport(app=app)
     base_url = "https://mcp.example.test"
@@ -69,7 +69,22 @@ async def _start_authorization(provider_store: OAuthStore, base_url: str) -> str
         redirect_uri_provided_explicitly=True,
     )
     url = await provider.authorize(CLIENT, params)
-    return parse_qs(urlparse(url).query)["state"][0]
+    return parse_qs(urlparse(url).query)["request_id"][0]
+
+
+async def _approve_in_browser(app_client: httpx.AsyncClient, request_id: str) -> None:
+    """What the person's browser does between authorize() and StudyLife's callback:
+    opens this server's consent page (which sets the browser-binding cookie) and
+    approves. The callback only accepts a state approved by the same browser."""
+    page = await app_client.get("/auth/consent", params={"request_id": request_id})
+    assert page.status_code == 200
+    csrf_token = page.text.split('name="csrf_token" value="')[1].split('"')[0]
+    approve = await app_client.post(
+        "/auth/consent",
+        data={"request_id": request_id, "csrf_token": csrf_token, "decision": "approve"},
+        follow_redirects=False,
+    )
+    assert approve.status_code == 303
 
 
 async def test_get_callback_unknown_state_returns_400(app_client: httpx.AsyncClient) -> None:
@@ -83,6 +98,7 @@ async def test_get_callback_missing_assertion_returns_400(
     app_client: httpx.AsyncClient, store: OAuthStore
 ) -> None:
     state = await _start_authorization(store, "https://mcp.example.test")
+    await _approve_in_browser(app_client, state)
 
     response = await app_client.get("/auth/studylife/callback", params={"state": state})
 
@@ -99,6 +115,7 @@ async def test_callback_happy_path_exchanges_assertion_and_redirects_with_code(
         return_value=httpx.Response(200, json={"userId": 42, "mcpApiKey": "rotated-mcp-key"})
     )
     state = await _start_authorization(store, "https://mcp.example.test")
+    await _approve_in_browser(app_client, state)
 
     response = await app_client.get(
         "/auth/studylife/callback",
@@ -132,6 +149,7 @@ async def test_callback_reconnect_upserts_key_for_same_subject(
         return_value=httpx.Response(200, json={"userId": 42, "mcpApiKey": "first-key"})
     )
     first_state = await _start_authorization(store, "https://mcp.example.test")
+    await _approve_in_browser(app_client, first_state)
     await app_client.get(
         "/auth/studylife/callback",
         params={"assertion": "first-assertion", "state": first_state},
@@ -142,6 +160,7 @@ async def test_callback_reconnect_upserts_key_for_same_subject(
         return_value=httpx.Response(200, json={"userId": 42, "mcpApiKey": "second-key"})
     )
     second_state = await _start_authorization(store, "https://mcp.example.test")
+    await _approve_in_browser(app_client, second_state)
     response = await app_client.get(
         "/auth/studylife/callback",
         params={"assertion": "second-assertion", "state": second_state},
@@ -158,6 +177,7 @@ async def test_callback_exchange_rejected_shows_generic_error_without_key_materi
 ) -> None:
     respx.post(EXCHANGE_URL).mock(return_value=httpx.Response(401))
     state = await _start_authorization(store, "https://mcp.example.test")
+    await _approve_in_browser(app_client, state)
 
     response = await app_client.get(
         "/auth/studylife/callback",
@@ -178,6 +198,7 @@ async def test_callback_exchange_network_error_shows_generic_error(
 ) -> None:
     respx.post(EXCHANGE_URL).mock(side_effect=httpx.ConnectError("connection refused"))
     state = await _start_authorization(store, "https://mcp.example.test")
+    await _approve_in_browser(app_client, state)
 
     response = await app_client.get(
         "/auth/studylife/callback",

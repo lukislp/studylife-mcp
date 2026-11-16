@@ -9,6 +9,7 @@ from mcp.server.auth.provider import (
     AuthorizationCode,
     AuthorizationParams,
     RefreshToken,
+    RegistrationError,
 )
 from mcp.shared.auth import OAuthClientInformationFull
 from pydantic import AnyUrl
@@ -36,9 +37,11 @@ def provider(store: OAuthStore) -> StudyLifeOAuthProvider:
     )
 
 
-async def test_authorize_saves_pending_and_redirects_to_studylife_connect(
+async def test_authorize_saves_pending_and_redirects_to_own_consent_page(
     provider: StudyLifeOAuthProvider, store: OAuthStore
 ) -> None:
+    """authorize() never sends the browser straight to StudyLife anymore (audit
+    2026-11-16 H2): the first stop is this server's browser-bound consent page."""
     params = AuthorizationParams(
         state="xyz",
         scopes=["studylife"],
@@ -49,13 +52,65 @@ async def test_authorize_saves_pending_and_redirects_to_studylife_connect(
 
     url = await provider.authorize(CLIENT, params)
 
-    assert url.startswith("https://connect.studylife.example.com/connect/mcp?")
-    query = parse_qs(urlparse(url).query)
-    assert query["redirect_uri"] == ["https://mcp.example.com/auth/studylife/callback"]
-    request_id = query["state"][0]
+    assert url.startswith("https://mcp.example.com/auth/consent?")
+    request_id = parse_qs(urlparse(url).query)["request_id"][0]
     pending = await store.load_pending_authorization(request_id)
     assert pending is not None
     assert pending[0] == "client-1"
+
+
+def test_studylife_connect_url_round_trips_request_id_as_state(
+    provider: StudyLifeOAuthProvider,
+) -> None:
+    url = provider.studylife_connect_url("req-1")
+
+    assert url.startswith("https://connect.studylife.example.com/connect/mcp?")
+    query = parse_qs(urlparse(url).query)
+    assert query["redirect_uri"] == ["https://mcp.example.com/auth/studylife/callback"]
+    assert query["state"] == ["req-1"]
+
+
+@pytest.mark.parametrize(
+    "redirect_uri",
+    [
+        "https://claude.ai/api/mcp/auth_callback",
+        "http://127.0.0.1:33418/callback",
+        "http://localhost:6274/oauth/callback",
+        "cursor://anysphere.cursor-mcp/oauth/callback",
+    ],
+)
+async def test_register_client_accepts_allowed_redirect_uris(
+    provider: StudyLifeOAuthProvider, store: OAuthStore, redirect_uri: str
+) -> None:
+    client = OAuthClientInformationFull(client_id="ok", redirect_uris=[AnyUrl(redirect_uri)])
+
+    await provider.register_client(client)
+
+    assert await store.get_client("ok") is not None
+
+
+@pytest.mark.parametrize(
+    "redirect_uri",
+    [
+        "http://attacker.example/callback",
+        "javascript://example.com/%0Aalert(1)",
+        "data://text/html,hi",
+        "file:///etc/passwd",
+    ],
+)
+async def test_register_client_rejects_disallowed_redirect_uris(
+    provider: StudyLifeOAuthProvider, store: OAuthStore, redirect_uri: str
+) -> None:
+    client = OAuthClientInformationFull(
+        client_id="bad",
+        redirect_uris=[AnyUrl("https://fine.example/cb"), AnyUrl(redirect_uri)],
+    )
+
+    with pytest.raises(RegistrationError) as excinfo:
+        await provider.register_client(client)
+
+    assert excinfo.value.error == "invalid_redirect_uri"
+    assert await store.get_client("bad") is None
 
 
 async def _issue_code(store: OAuthStore, subject: str = "user-subject") -> AuthorizationCode:

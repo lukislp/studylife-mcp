@@ -290,3 +290,63 @@ server's real message (the CLI must explain WHY a login failed) while the OAuth 
 keeps the swallowing wrapper; and the tests drive a REAL loopback listener (stubbed browser
 fires the redirect from a thread) instead of mocking the HTTP server, with
 `respx.route(host="127.0.0.1").pass_through()` so the mock layer doesn't eat the local call.
+
+## 2026-11-16 - Consent page on this server, bound to one browser (audit H2) **[owner: assistant, per audit remediation H2]**
+
+- **Finding:** `/auth/studylife/callback` loaded the pending authorization by `state` alone and
+  redirected the code to the redirect URI stored with it. Registration is open (RFC 7591), so an
+  attacker could register a client with their own redirect URI, start `/authorize`, and send the
+  resulting StudyLife consent link to a victim. One click on StudyLife's page (which names only
+  "MCP") sent the victim's authorization code to the attacker.
+- **How the SDK constrains the design:** the SDK's `/authorize` handler validates the client,
+  the redirect URI against the registered ones, and PKCE, then answers with a 302 to whatever
+  `provider.authorize()` returns. The provider can't set a cookie on that response. So
+  `authorize()` now returns this server's own `/auth/consent?request_id=...` page instead of the
+  StudyLife URL, and the binding starts there.
+- **Decision:** rules in `consent.py` (no I/O), state in `oauth_store.py` (three nullable
+  columns on `pending_auth`, added with `ALTER TABLE` like earlier columns), routes in
+  `oauth_provider.register_oauth_routes`:
+  1. `GET /auth/consent` binds the pending request to the browser that opens it. The browser
+     gets a random value in an HttpOnly, Secure, SameSite=Lax cookie (path `/auth`), and the row
+     stores its sha256. The first browser wins: a link that was already opened elsewhere returns
+     403, with no form and no CSRF token. The page shows the client's self-declared name and,
+     more importantly, the redirect host that will receive access, with
+     `X-Frame-Options: DENY`, `frame-ancestors 'none'` and `Cache-Control: no-store`.
+  2. `POST /auth/consent` (approve/deny) needs both the binding cookie and the per-request CSRF
+     token from the rendered form. Approve redirects to StudyLife's `/connect/mcp`. Deny
+     consumes the request and sends the client `error=access_denied` (RFC 6749 4.1.2.1).
+  3. `/auth/studylife/callback` only accepts a request that was approved by the browser that
+     presents the binding cookie. Anything else (no cookie, another browser's cookie, never
+     approved) gets 403 before the assertion is redeemed, so no code is issued and the
+     assertion isn't spent.
+- **Redirect URI restriction at registration:** the SDK accepts any absolute URL.
+  `register_client()` now rejects plain `http` to a non-loopback host, URIs with a fragment, and
+  `javascript`/`data`/`vbscript`/`file`/`blob`/`about`/`ftp`/`ws(s)` schemes with
+  `invalid_redirect_uri`. `https` to any host, `http` to loopback (RFC 8252 7.3), and native
+  apps' private-use schemes (RFC 8252 7.1, e.g. `cursor://`) are still accepted. This is
+  defense in depth. An attacker can still register an https host they own, which is why the
+  consent page shows the host.
+- **Revoke page fixed (H2 "Related"):** `/connected-apps` opened its management session for
+  `sha256(key)`, but every grant made through the connect flow carries `str(userId)`. So the
+  page listed nothing and a victim couldn't revoke. The key is now resolved with
+  `GET /api/auth/whoami` (identity contract v1 section 1, available to every key slot; now also
+  covered by the OpenAPI contract test), and the session uses that user id. Grants made before
+  the connect flow (`sha256(key)` subjects) are no longer listed. They only work while their
+  key is still the account's current MCP key, and every connect since then rotated that key.
+- **Deployment:** `/auth/consent` was added to the public Tailscale Funnel path allowlist
+  (`k8s/07-tailscale-funnel.yaml`), next to the callback. Pending requests from before the
+  deploy have no binding and simply expire (10 min). Clients have to restart that one
+  connection.
+- **Known residual:** if a victim completes StudyLife's login for an attacker's state (the
+  callback then refuses it), StudyLife has already rotated the victim's MCP key. Existing grants
+  pick up the new key on the next legitimate connect. Until then their stored key is stale. That
+  is a nuisance (denial of service), not access, and fixing it is StudyLife's side (rotate on
+  redemption instead of on consent).
+- **Verified:** `ruff check`, `ruff format --check`, `mypy src` clean; `pytest` 215 passed. New
+  `tests/test_oauth_consent_route.py` drives the attack with two separate browser cookie jars:
+  a state approved in the attacker's browser is rejected in the victim's (with and without the
+  victim's own binding cookie), a callback without approval issues no code, a consent link
+  opened first by the attacker can't be approved by the victim (even with the leaked CSRF
+  token), plus approve without a cookie or with a wrong CSRF token, the happy path, and deny.
+  The connected-apps tests now log in through a mocked whoami and revoke a `str(userId)` grant
+  end to end. Not verified against a live StudyLife instance or a real browser.

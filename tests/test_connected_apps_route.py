@@ -20,6 +20,10 @@ from studylife_mcp.oauth_provider import (
 from studylife_mcp.oauth_store import OAuthStore
 
 API_KEY = "a-real-studylife-key"
+# The StudyLife user id GET /api/auth/whoami returns for API_KEY - the subject every
+# grant made through the connect flow carries (str(userId)).
+SUBJECT = "42"
+WHOAMI_URL = "https://studylife.example.test/api/auth/whoami"
 
 
 @pytest.fixture
@@ -44,7 +48,7 @@ async def app_client(store: OAuthStore, settings: Settings):
             required_scopes=[SCOPE],
         ),
     )
-    register_oauth_routes(mcp, store, settings)
+    register_oauth_routes(mcp, store, settings, provider)
     app = mcp.streamable_http_app()
     transport = httpx.ASGITransport(app=app)
     base_url = "https://mcp.example.test"
@@ -56,7 +60,7 @@ async def _connect_client(store: OAuthStore, *, client_id: str, client_name: str
     """Directly seeds a registered+authorized client for API_KEY's subject - the connect
     flow itself is covered by test_oauth_studylife_callback_route.py, this file is about
     /connected-apps behavior once a connection already exists."""
-    subject = store.subject_for_key(API_KEY)
+    subject = SUBJECT
     await store.save_user_key(subject, API_KEY)
     await store.register_client(
         OAuthClientInformationFull(
@@ -128,7 +132,7 @@ async def test_get_with_query_session_id_sets_cookie_and_redirects_to_clean_url(
 async def test_get_with_valid_cookie_shows_list_without_query_param(
     app_client: httpx.AsyncClient, store: OAuthStore
 ) -> None:
-    subject = store.subject_for_key(API_KEY)
+    subject = SUBJECT
     session_id, _csrf_token = await store.create_management_session(subject)
     app_client.cookies.set(MANAGEMENT_SESSION_COOKIE, session_id, path="/connected-apps")
 
@@ -164,7 +168,7 @@ async def test_post_missing_key_reshows_form(app_client: httpx.AsyncClient) -> N
 async def test_post_rejected_key_reshows_form_with_error(
     app_client: httpx.AsyncClient, settings: Settings
 ) -> None:
-    respx.get("https://studylife.example.test/api/courses").mock(return_value=httpx.Response(401))
+    respx.get(WHOAMI_URL).mock(return_value=httpx.Response(401))
 
     response = await app_client.post("/connected-apps", data={"api_key": "a-bad-key"})
 
@@ -176,8 +180,8 @@ async def test_post_rejected_key_reshows_form_with_error(
 async def test_post_valid_key_redirects_to_clean_url_and_sets_session_cookie(
     app_client: httpx.AsyncClient, settings: Settings
 ) -> None:
-    respx.get("https://studylife.example.test/api/courses").mock(
-        return_value=httpx.Response(200, json=[])
+    respx.get(WHOAMI_URL).mock(
+        return_value=httpx.Response(200, json={"userId": 42, "credential": "mcp"})
     )
 
     response = await app_client.post(
@@ -198,8 +202,8 @@ async def test_list_shows_connected_client_and_no_others(
     app_client: httpx.AsyncClient, store: OAuthStore, settings: Settings
 ) -> None:
     await _connect_client(store, client_id="claude", client_name="Claude")
-    respx.get("https://studylife.example.test/api/courses").mock(
-        return_value=httpx.Response(200, json=[])
+    respx.get(WHOAMI_URL).mock(
+        return_value=httpx.Response(200, json={"userId": 42, "credential": "mcp"})
     )
     login = await app_client.post(
         "/connected-apps", data={"api_key": API_KEY}, follow_redirects=False
@@ -217,7 +221,7 @@ async def test_list_shows_connected_client_and_no_others(
 async def test_list_empty_state_when_nothing_connected(
     app_client: httpx.AsyncClient, store: OAuthStore
 ) -> None:
-    subject = store.subject_for_key(API_KEY)
+    subject = SUBJECT
     session_id, _csrf_token = await store.create_management_session(subject)
     app_client.cookies.set(MANAGEMENT_SESSION_COOKIE, session_id, path="/connected-apps")
 
@@ -351,3 +355,49 @@ async def test_revoke_does_not_affect_other_subjects(
 
     assert await store.load_access_token("access-other") is not None
     assert await store.load_refresh_token("refresh-other") is not None
+
+
+@respx.mock
+async def test_key_login_lists_and_revokes_a_connect_flow_grant(
+    app_client: httpx.AsyncClient, store: OAuthStore
+) -> None:
+    """Regression (audit 2026-11-16, H2 "Related"): grants made through the connect flow
+    carry subject str(userId). The key login used to open a session for sha256(key),
+    so the page listed nothing and nothing could be revoked. Now the key is resolved
+    to its user id via whoami, end to end: log in, see the grant, revoke it from the
+    rendered form."""
+    await _connect_client(store, client_id="claude", client_name="Claude")
+    respx.get(WHOAMI_URL).mock(
+        return_value=httpx.Response(200, json={"userId": 42, "credential": "mcp"})
+    )
+
+    login = await app_client.post(
+        "/connected-apps", data={"api_key": API_KEY}, follow_redirects=False
+    )
+    assert login.status_code == 303
+    page = await app_client.get("/connected-apps")
+    assert "Claude" in page.text
+    csrf_token = page.text.split('name="csrf_token" value="')[1].split('"')[0]
+
+    revoke = await app_client.post(
+        "/connected-apps/revoke",
+        data={"client_id": "claude", "csrf_token": csrf_token},
+        follow_redirects=False,
+    )
+
+    assert revoke.status_code == 303
+    assert await store.load_access_token("access-claude") is None
+    assert await store.load_refresh_token("refresh-claude") is None
+    assert "Claude" not in (await app_client.get("/connected-apps")).text
+
+
+@respx.mock
+async def test_key_login_with_unexpected_whoami_shape_is_rejected(
+    app_client: httpx.AsyncClient,
+) -> None:
+    respx.get(WHOAMI_URL).mock(return_value=httpx.Response(200, json={"unexpected": True}))
+
+    response = await app_client.post("/connected-apps", data={"api_key": API_KEY})
+
+    assert response.status_code == 401
+    assert MANAGEMENT_SESSION_COOKIE not in response.headers.get("set-cookie", "")

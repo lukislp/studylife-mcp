@@ -94,7 +94,7 @@ spec:
 # Egress for the server pod. Its only outbound dependency is StudyLife itself:
 # STUDYLIFE_BASE_URL = https://studylife-web.studylife-scale.svc.cluster.local
 # (k8s/01-config.yaml), used by every MCP tool call (client.py) and by the OAuth provider's
-# key check (oauth_provider._validate_studylife_key). NetworkPolicy matches the POD port, not
+# key check (oauth_provider._resolve_key_subject). NetworkPolicy matches the POD port, not
 # the Service port: studylife-scale's studylife-web Service maps 443 -> 8443 and 80 -> 8080,
 # so the HTTPS base URL above lands on container port 8443. 8080 is allowed alongside it so
 # switching the base URL to plain HTTP needs no further policy change.
