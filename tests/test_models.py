@@ -1,4 +1,4 @@
-"""Wire-format regression tests for the StudyLife DTO models."""
+"""Wire-format regression tests for the StudyAtrium DTO models."""
 
 import re
 from datetime import UTC, datetime

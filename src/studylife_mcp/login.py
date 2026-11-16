@@ -43,7 +43,7 @@ CALLBACK_TIMEOUT_SECONDS = 300.0
 # TODO(scheduler): fill in the actual StudyLife release/tag once the loopback-exception
 # server PR (RFC 8252 - accepting http://127.0.0.1:<port> as a valid /connect/mcp
 # redirect_uri) is cut and released. Referenced only in user-facing error messages below.
-MIN_STUDYLIFE_RELEASE_FOR_LOOPBACK = "the StudyLife release containing lukislp/studylife#97"
+MIN_STUDYLIFE_RELEASE_FOR_LOOPBACK = "the StudyAtrium release containing lukislp/studylife#97"
 
 # Same variable config.Settings/server.main() read STUDYLIFE_API_KEY from - see .env.example.
 ENV_KEY_NAME = "STUDYLIFE_API_KEY"
@@ -204,18 +204,18 @@ def run_login(
         f"{base_url}/connect/mcp?{urlencode({'redirect_uri': redirect_uri, 'state': state_token})}"
     )
 
-    print(f"Opening your browser to log in to StudyLife:\n  {connect_url}")
+    print(f"Opening your browser to log in to StudyAtrium:\n  {connect_url}")
     print("Waiting for you to finish logging in and approving the connection...")
     open_browser(connect_url)
 
     result = callback_server.wait_for_callback(timeout_seconds)
     if result is None:
         print(
-            f"Timed out after {int(timeout_seconds)}s waiting for StudyLife to redirect "
+            f"Timed out after {int(timeout_seconds)}s waiting for StudyAtrium to redirect "
             "back. Either the login/approval wasn't completed in the browser tab, or "
-            "this StudyLife instance doesn't yet accept a loopback redirect_uri "
-            f"(requires StudyLife {MIN_STUDYLIFE_RELEASE_FOR_LOOPBACK} or newer) - if the "
-            "browser tab showed an error from StudyLife itself, that's the likely cause. "
+            "this StudyAtrium instance doesn't yet accept a loopback redirect_uri "
+            f"(requires StudyAtrium {MIN_STUDYLIFE_RELEASE_FOR_LOOPBACK} or newer) - if the "
+            "browser tab showed an error from StudyAtrium itself, that's the likely cause. "
             "You can also set up access manually - see the README.",
             file=sys.stderr,
         )
@@ -231,9 +231,9 @@ def run_login(
 
     if not result.assertion:
         print(
-            "StudyLife's callback didn't include a login assertion - the connection may "
+            "StudyAtrium's callback didn't include a login assertion - the connection may "
             "have been denied, or this instance may not fully support the loopback login "
-            f"flow yet (requires StudyLife {MIN_STUDYLIFE_RELEASE_FOR_LOOPBACK} or newer). "
+            f"flow yet (requires StudyAtrium {MIN_STUDYLIFE_RELEASE_FOR_LOOPBACK} or newer). "
             "You can also set up access manually - see the README.",
             file=sys.stderr,
         )
@@ -257,7 +257,7 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         prog="studylife-mcp-login",
         description=(
-            "Browser-based login for stdio mode: opens StudyLife's consent page, "
+            "Browser-based login for stdio mode: opens StudyAtrium's consent page, "
             "exchanges the resulting assertion for an MCP API key, and writes it into "
             "the .env file stdio mode reads it from."
         ),
@@ -265,7 +265,7 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument(
         "--base-url",
         default=None,
-        help="StudyLife base URL to log in against. Defaults to STUDYLIFE_BASE_URL "
+        help="StudyAtrium base URL to log in against. Defaults to STUDYLIFE_BASE_URL "
         "from .env / the environment.",
     )
     parser.add_argument(

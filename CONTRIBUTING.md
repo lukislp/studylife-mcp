@@ -1,6 +1,6 @@
-# Contributing to StudyLife MCP
+# Contributing to StudyAtrium MCP
 
-Thanks for taking the time. StudyLife MCP is a single-maintainer project, so the process is
+Thanks for taking the time. StudyAtrium MCP is a single-maintainer project, so the process is
 deliberately small - but it is the same for every change, including the maintainer's own.
 
 ## How changes get in
@@ -30,7 +30,7 @@ deliberately small - but it is the same for every change, including the maintain
   is easy to miss, since `ruff check` passing does not mean the formatting is clean.
 - **API contract.** `contract-test` is its own required check and runs
   `tests/test_openapi_contract.py` against the main `studylife` repository's committed OpenAPI
-  spec. This server exposes StudyLife data to MCP clients, so a drifting contract breaks them -
+  spec. This server exposes StudyAtrium data to MCP clients, so a drifting contract breaks them -
   a contract change has to land on both sides.
 - **Lockfile.** CI installs with `uv sync --frozen`, so a dependency change means committing the
   updated `uv.lock` alongside `pyproject.toml`.
