@@ -894,3 +894,116 @@ async def test_revoke_client_access_works_on_hashed_tokens(store: OAuthStore) ->
 
     assert await store.load_access_token("a-1") is None
     assert await store.load_refresh_token("r-1") is None
+
+
+async def _login(store: OAuthStore, subject: str, client_id: str) -> None:
+    """What a completed login leaves behind for one client: the stored key (shared by all
+    of the subject's clients) plus an access and a refresh token."""
+    await store.save_user_key(subject, f"studylife-key-{subject}")
+    expires_at = int(time.time()) + 3600
+    await store.save_access_token(
+        AccessToken(
+            token=f"access-{subject}-{client_id}",
+            client_id=client_id,
+            scopes=["studylife"],
+            expires_at=expires_at,
+            subject=subject,
+        )
+    )
+    await store.save_refresh_token(
+        RefreshToken(
+            token=f"refresh-{subject}-{client_id}",
+            client_id=client_id,
+            scopes=["studylife"],
+            expires_at=expires_at,
+            subject=subject,
+        )
+    )
+
+
+async def _age_user_key(store: OAuthStore, subject: str, seconds: float) -> None:
+    async with store._connection() as conn:
+        await conn.execute(
+            "UPDATE user_keys SET created_at = created_at - ? WHERE subject = ?",
+            (seconds, subject),
+        )
+        await conn.commit()
+
+
+async def test_revoke_last_client_removes_the_stored_user_key(store: OAuthStore) -> None:
+    await _login(store, "42", "client-1")
+
+    await store.revoke_client_access("42", "client-1")
+
+    assert await store.load_user_key("42") is None
+
+
+async def test_revoke_keeps_the_user_key_while_another_client_is_connected(
+    store: OAuthStore,
+) -> None:
+    await _login(store, "42", "client-1")
+    await _login(store, "42", "client-2")
+
+    await store.revoke_client_access("42", "client-1")
+
+    assert await store.load_user_key("42") is not None
+    assert await store.load_refresh_token("refresh-42-client-2") is not None
+
+
+async def test_revoke_keeps_other_subjects_user_keys(store: OAuthStore) -> None:
+    await _login(store, "42", "client-1")
+    await _login(store, "43", "client-1")
+
+    await store.revoke_client_access("42", "client-1")
+
+    assert await store.load_user_key("42") is None
+    assert await store.load_user_key("43") is not None
+    assert await store.load_access_token("access-43-client-1") is not None
+
+
+async def test_cleanup_orphaned_user_keys_removes_old_keys_without_tokens(
+    store: OAuthStore,
+) -> None:
+    await store.save_user_key("orphan", "studylife-key-orphan")
+    await _login(store, "active", "client-1")
+    await _age_user_key(store, "orphan", 2 * 60 * 60)
+    await _age_user_key(store, "active", 2 * 60 * 60)
+
+    removed = await store.cleanup_orphaned_user_keys()
+
+    assert removed == 1
+    assert await store.load_user_key("orphan") is None
+    assert await store.load_user_key("active") is not None
+
+
+async def test_cleanup_orphaned_user_keys_spares_a_login_still_in_progress(
+    store: OAuthStore,
+) -> None:
+    """The key is saved a moment before the first token - a fresh row must survive."""
+    await store.save_user_key("just-logged-in", "studylife-key")
+
+    assert await store.cleanup_orphaned_user_keys() == 0
+    assert await store.load_user_key("just-logged-in") is not None
+
+
+async def test_sweep_of_expired_tokens_then_keys_removes_a_lapsed_subjects_key(
+    store: OAuthStore,
+) -> None:
+    await store.save_user_key("lapsed", "studylife-key")
+    long_ago = int(time.time()) - 60 * 60 * 24 * 2
+    await store.save_refresh_token(
+        RefreshToken(
+            token="refresh-lapsed",
+            client_id="client-1",
+            scopes=["studylife"],
+            expires_at=long_ago,
+            subject="lapsed",
+        )
+    )
+    await _age_user_key(store, "lapsed", 3 * 60 * 60 * 24)
+
+    await store.cleanup_expired_tokens()
+    removed = await store.cleanup_orphaned_user_keys()
+
+    assert removed == 1
+    assert await store.load_user_key("lapsed") is None

@@ -245,6 +245,7 @@ and a real Tailscale-side incident hit along the way.
 | `MCP_TOKEN_ENCRYPTION_KEY` | *(HTTP mode only)* Fernet key encrypting each user's StudyAtrium API key at rest in the OAuth store. |
 | `MCP_OAUTH_DB_PATH` | *(HTTP mode only)* SQLite file for OAuth clients/tokens/per-user keys. Default `oauth.db`. |
 | `MCP_HTTP_HOST` / `MCP_HTTP_PORT` | *(HTTP mode only)* Bind address. Defaults `127.0.0.1:8000` (`0.0.0.0` inside Docker). |
+| `STUDYLIFE_PURGE_SECRET` | *(HTTP mode only, optional)* Shared secret for the account-deletion purge call (see [Account deletion / purge](#account-deletion--purge)). Unset = that route answers 503. |
 
 ## Tools
 
@@ -327,6 +328,40 @@ flagged in its tool's description as user-authored data, not instructions.
   controller before ever reaching the pod, reachable only via the
   tailnet/LAN-only `studylife-mcp.heim.lan` route. See
   [docs/decisions.md](docs/decisions.md).
+
+## Account deletion / purge
+
+When a StudyAtrium account is deleted, the StudyAtrium server calls every add-on that
+stores per-user data. For this server that is:
+
+```
+POST {MCP base URL}/internal/users/{user_id}/purge
+X-StudyLife-Shared-Secret: <STUDYLIFE_PURGE_SECRET>
+Content-Type: application/json
+
+{"key_hashes": ["<64 lowercase hex chars>", ...]}
+```
+
+- `user_id` is the StudyAtrium user id of the deleted account (a positive integer).
+- `key_hashes` (optional, at most 50) are the lowercase hex SHA-256 digests of the MCP API
+  keys StudyAtrium issued for that user. Grants made before the connect flow used that
+  digest as their OAuth subject (`OAuthStore.subject_for_key`), so they are matched too.
+- The server removes, in one transaction, the user's encrypted StudyAtrium key, their
+  access tokens, refresh tokens and unredeemed authorization codes, and their
+  `/connected-apps` sessions (subjects: the user id and every given key hash). OAuth
+  client registrations are not per-user data and stay.
+- Answers `204` on success and also when nothing matched or the call is repeated
+  (idempotent), `401` for a missing/wrong secret, `422` for an invalid user id or body, and
+  `503` when `STUDYLIFE_PURGE_SECRET` is not set (the route is never open). Any non-2xx
+  makes StudyAtrium retry later. The log line carries the user id and row counts only.
+- The route is internal: it is not on the Tailscale Funnel allowlist, the Gateway
+  `HTTPRoute` answers `/internal` with an error, and the `NetworkPolicy`
+  `allow-studylife-server-to-studylife-mcp` admits only the StudyAtrium server pods.
+
+Independently of account deletion, revoking a client on `/connected-apps` removes the
+user's stored key as soon as no client is connected any more, and the hourly cleanup also
+removes stored keys that no longer have any token. See [PRIVACY.md](PRIVACY.md) for what
+this server stores.
 
 ## Observability
 

@@ -60,5 +60,10 @@ class Settings(BaseSettings):
     # Relative to the working directory the server is started from; gitignored like .env.
     mcp_oauth_db_path: str = "oauth.db"
 
+    # Shared secret for POST /internal/users/{user_id}/purge (account_purge.py), sent by the
+    # StudyAtrium server as X-StudyLife-Shared-Secret when an account is deleted. Unset
+    # (the default) switches the route off: it answers 503 instead of being open.
+    studylife_purge_secret: str | None = None
+
     mcp_http_host: str = "127.0.0.1"
     mcp_http_port: int = 8000

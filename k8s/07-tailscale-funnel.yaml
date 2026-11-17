@@ -37,6 +37,10 @@
 # "Exact" pathType, see docs.tailscale.com/kubernetes-operator/reference/limitations), not
 # left to remembering not to link it anywhere.
 #
+# /internal (the account-deletion purge call from the StudyAtrium server, account_purge.py) is
+# likewise absent on purpose: it is only reachable pod-to-pod through the Service, see
+# k8s/05-network-policies.yaml's allow-studylife-server-to-studylife-mcp. Do not add it here.
+#
 # Bootstrap-only, NOT Flux-managed - same RBAC reasoning as k8s/06-httproute.yaml
 # (kustomize-controller's ClusterRole has no permission on the networking.k8s.io Ingress
 # resource at all).
