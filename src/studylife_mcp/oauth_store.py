@@ -13,6 +13,8 @@ from cryptography.fernet import Fernet
 from mcp.server.auth.provider import AccessToken, AuthorizationCode, RefreshToken
 from mcp.shared.auth import OAuthClientInformationFull
 
+from studylife_mcp.token_hash import hash_token, is_hashed
+
 logger = logging.getLogger("studylife_mcp.oauth_store")
 
 
@@ -128,6 +130,13 @@ TOKEN_PURGE_GRACE_SECONDS = 60 * 60 * 24
 MANAGEMENT_SESSION_TTL_SECONDS = 600
 
 
+# (table, model) pairs whose `token` column is stored hashed - see token_hash.py.
+_TOKEN_TABLES: tuple[tuple[str, type[AccessToken] | type[RefreshToken]], ...] = (
+    ("access_tokens", AccessToken),
+    ("refresh_tokens", RefreshToken),
+)
+
+
 class OAuthStore:
     """SQLite-backed persistence for the OAuth authorization server (oauth_provider.py):
     registered clients, in-flight authorizations, issued codes/tokens, and each
@@ -189,7 +198,30 @@ class OAuthStore:
                 except aiosqlite.OperationalError as exc:
                     if "duplicate column name" not in str(exc):
                         raise
+            for table, model in _TOKEN_TABLES:
+                await self._hash_legacy_tokens(conn, table, model)
             await conn.commit()
+
+    @staticmethod
+    async def _hash_legacy_tokens(
+        conn: aiosqlite.Connection, table: str, model: type[AccessToken] | type[RefreshToken]
+    ) -> None:
+        """Audit 2026-11-16 L22: rows written before token hashing hold the bearer
+        token in plaintext (both the `token` column and inside token_json). Rewrite
+        them in place - hashed key, redacted JSON - so every token issued earlier
+        keeps validating (the presented token is hashed at lookup) and nobody is
+        logged out. Idempotent: already-hashed rows are skipped, so it is safe on
+        every start and a no-op once the table is clean."""
+        cursor = await conn.execute(f"SELECT token, token_json FROM {table}")
+        for stored, token_json in await cursor.fetchall():
+            if is_hashed(stored):
+                continue
+            digest = hash_token(stored)
+            redacted = model.model_validate_json(token_json).model_copy(update={"token": digest})
+            await conn.execute(
+                f"UPDATE {table} SET token = ?, token_json = ? WHERE token = ?",
+                (digest, redacted.model_dump_json(), stored),
+            )
 
     # --- clients (RFC 7591 dynamic client registration) ---
 
@@ -505,11 +537,13 @@ class OAuthStore:
     # --- access / refresh tokens ---
 
     async def save_access_token(self, token: AccessToken) -> None:
+        digest = hash_token(token.token)
+        stored = token.model_copy(update={"token": digest})
         async with self._connection() as conn:
             await conn.execute(
                 "INSERT OR REPLACE INTO access_tokens (token, client_id, token_json, expires_at) "
                 "VALUES (?, ?, ?, ?)",
-                (token.token, token.client_id, token.model_dump_json(), token.expires_at),
+                (digest, token.client_id, stored.model_dump_json(), token.expires_at),
             )
             # First real token issued for this client = it completed the OAuth flow at
             # least once, so the TTL cleanup in register_client() must never sweep it.
@@ -522,22 +556,27 @@ class OAuthStore:
     async def load_access_token(self, token: str) -> AccessToken | None:
         async with self._connection() as conn:
             cursor = await conn.execute(
-                "SELECT token_json FROM access_tokens WHERE token = ?", (token,)
+                "SELECT token_json FROM access_tokens WHERE token = ?", (hash_token(token),)
             )
             row = await cursor.fetchone()
-        return AccessToken.model_validate_json(row[0]) if row else None
+        if row is None:
+            return None
+        # The stored JSON carries the digest, not the token - hand back the real one.
+        return AccessToken.model_validate_json(row[0]).model_copy(update={"token": token})
 
     async def delete_access_token(self, token: str) -> None:
         async with self._connection() as conn:
-            await conn.execute("DELETE FROM access_tokens WHERE token = ?", (token,))
+            await conn.execute("DELETE FROM access_tokens WHERE token = ?", (hash_token(token),))
             await conn.commit()
 
     async def save_refresh_token(self, token: RefreshToken) -> None:
+        digest = hash_token(token.token)
+        stored = token.model_copy(update={"token": digest})
         async with self._connection() as conn:
             await conn.execute(
                 "INSERT OR REPLACE INTO refresh_tokens (token, client_id, token_json, expires_at) "
                 "VALUES (?, ?, ?, ?)",
-                (token.token, token.client_id, token.model_dump_json(), token.expires_at),
+                (digest, token.client_id, stored.model_dump_json(), token.expires_at),
             )
             await conn.commit()
 
@@ -548,19 +587,19 @@ class OAuthStore:
         the SDK path" argument). A token with expires_at IS NULL never expires."""
         async with self._connection() as conn:
             cursor = await conn.execute(
-                "SELECT token_json FROM refresh_tokens WHERE token = ?", (token,)
+                "SELECT token_json FROM refresh_tokens WHERE token = ?", (hash_token(token),)
             )
             row = await cursor.fetchone()
         if row is None:
             return None
-        loaded = RefreshToken.model_validate_json(row[0])
+        loaded = RefreshToken.model_validate_json(row[0]).model_copy(update={"token": token})
         if loaded.expires_at is not None and loaded.expires_at < time.time():
             return None
         return loaded
 
     async def delete_refresh_token(self, token: str) -> None:
         async with self._connection() as conn:
-            await conn.execute("DELETE FROM refresh_tokens WHERE token = ?", (token,))
+            await conn.execute("DELETE FROM refresh_tokens WHERE token = ?", (hash_token(token),))
             await conn.commit()
 
     # --- per-user StudyLife API key, encrypted at rest ---

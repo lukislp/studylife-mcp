@@ -1,3 +1,4 @@
+import sqlite3
 import time
 from pathlib import Path
 
@@ -9,6 +10,7 @@ from mcp.shared.auth import OAuthClientInformationFull
 from pydantic import AnyUrl
 
 from studylife_mcp.oauth_store import OAuthStore
+from studylife_mcp.token_hash import hash_token
 
 
 @pytest.fixture
@@ -803,3 +805,92 @@ async def test_expired_pending_authorization_cannot_be_bound_or_approved(
         assert await store.bind_pending_authorization("req-2", "hash-a", "csrf-a") is None
     finally:
         oauth_store_module.PENDING_AUTH_TTL_SECONDS = original_ttl
+
+
+# --- token hashing at rest (audit 2026-11-16 L22) ---
+
+
+def _raw_rows(db_path: str, table: str) -> list[tuple[str, str]]:
+    with sqlite3.connect(db_path) as db:
+        return db.execute(f"SELECT token, token_json FROM {table}").fetchall()
+
+
+async def test_tokens_are_stored_hashed_and_still_load(store: OAuthStore, tmp_path: Path) -> None:
+    await store.save_access_token(
+        AccessToken(token="access-secret", client_id="c", scopes=["studylife"], subject="u")
+    )
+    await store.save_refresh_token(
+        RefreshToken(token="refresh-secret", client_id="c", scopes=["studylife"], subject="u")
+    )
+    db_path = str(tmp_path / "oauth.db")
+
+    for table, secret in (("access_tokens", "access-secret"), ("refresh_tokens", "refresh-secret")):
+        ((stored, token_json),) = _raw_rows(db_path, table)
+        assert stored == hash_token(secret)
+        assert secret not in stored
+        assert secret not in token_json
+
+    loaded_access = await store.load_access_token("access-secret")
+    loaded_refresh = await store.load_refresh_token("refresh-secret")
+    assert loaded_access is not None
+    assert loaded_access.token == "access-secret"
+    assert loaded_refresh is not None
+    assert loaded_refresh.token == "refresh-secret"
+    # The stored digest itself is not a usable bearer token.
+    assert await store.load_access_token(hash_token("access-secret")) is None
+
+
+def _insert_legacy_row(db_path: str, table: str, model: AccessToken | RefreshToken) -> None:
+    with sqlite3.connect(db_path) as db:
+        db.execute(
+            f"INSERT INTO {table} (token, client_id, token_json, expires_at) VALUES (?, ?, ?, ?)",
+            (model.token, model.client_id, model.model_dump_json(), model.expires_at),
+        )
+
+
+async def test_initialize_upgrades_legacy_plaintext_tokens(
+    store: OAuthStore, tmp_path: Path
+) -> None:
+    db_path = str(tmp_path / "oauth.db")
+    _insert_legacy_row(
+        db_path,
+        "access_tokens",
+        AccessToken(token="legacy-access", client_id="c", scopes=["studylife"], subject="u"),
+    )
+    _insert_legacy_row(
+        db_path,
+        "refresh_tokens",
+        RefreshToken(token="legacy-refresh", client_id="c", scopes=["studylife"], subject="u"),
+    )
+
+    await store.initialize()
+    await store.initialize()  # idempotent
+
+    for table, secret in (("access_tokens", "legacy-access"), ("refresh_tokens", "legacy-refresh")):
+        ((stored, token_json),) = _raw_rows(db_path, table)
+        assert stored == hash_token(secret)
+        assert secret not in token_json
+
+    access = await store.load_access_token("legacy-access")
+    refresh = await store.load_refresh_token("legacy-refresh")
+    assert access is not None
+    assert access.subject == "u"
+    assert refresh is not None
+    assert refresh.subject == "u"
+
+    await store.delete_refresh_token("legacy-refresh")
+    assert await store.load_refresh_token("legacy-refresh") is None
+
+
+async def test_revoke_client_access_works_on_hashed_tokens(store: OAuthStore) -> None:
+    await store.save_access_token(
+        AccessToken(token="a-1", client_id="c", scopes=["studylife"], subject="u")
+    )
+    await store.save_refresh_token(
+        RefreshToken(token="r-1", client_id="c", scopes=["studylife"], subject="u")
+    )
+
+    await store.revoke_client_access("u", "c")
+
+    assert await store.load_access_token("a-1") is None
+    assert await store.load_refresh_token("r-1") is None
