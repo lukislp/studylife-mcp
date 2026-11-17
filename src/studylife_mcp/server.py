@@ -10,6 +10,7 @@ from mcp.server.mcpserver import MCPServer
 from starlette.requests import Request
 from starlette.responses import PlainTextResponse, Response
 
+from studylife_mcp.account_purge import register_purge_route
 from studylife_mcp.audit import audited
 from studylife_mcp.client_resolver import StudyLifeClientResolver
 from studylife_mcp.config import Settings
@@ -63,6 +64,7 @@ if (
         ),
     )
     register_oauth_routes(mcp, _oauth_store, _settings, _provider)
+    register_purge_route(mcp, _oauth_store, _settings)
 else:
     mcp = MCPServer("studylife-mcp", title="StudyAtrium MCP")
 

@@ -42,6 +42,12 @@ spec:
     - studylife-mcp.heim.lan
     - studylife-mcp.lukas2311-homelab.com
   rules:
+    # /internal (account-deletion purge call, account_purge.py) is for the StudyAtrium server
+    # pods only, which reach the Service directly - never through this Gateway. A rule with a
+    # path match and no backendRefs makes the Gateway answer that prefix itself with an error
+    # (Gateway API: HTTP 500) instead of forwarding it; the longer prefix wins over "/" below.
+    - matches:
+        - path: { type: PathPrefix, value: /internal }
     - backendRefs:
         - name: studylife-mcp
           port: 8000

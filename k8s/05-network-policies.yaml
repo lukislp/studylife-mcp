@@ -1,7 +1,7 @@
 # Default-deny in BOTH directions as the baseline (default-deny-ingress and
 # default-deny-egress), with every allowed flow spelled out as its own policy: cluster DNS in
-# allow-dns, this server's single outbound dependency in studylife-mcp-egress, and the three
-# inbound paths (Gateway, Tailscale funnel, Prometheus) below. Bootstrap-only, NOT
+# allow-dns, this server's single outbound dependency in studylife-mcp-egress, and the four
+# inbound paths (Gateway, Tailscale funnel, Prometheus, StudyAtrium server) below. Bootstrap-only, NOT
 # Flux-managed - kustomize-controller's ClusterRole (studylife repo's
 # k8s/flux/06-reconciler-rbac.yaml) has no "networkpolicies" permission.
 apiVersion: networking.k8s.io/v1
@@ -81,6 +81,30 @@ spec:
     - from:
         - namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: monitoring } }
           podSelector: { matchLabels: { app: prometheus } }
+      ports:
+        - { protocol: TCP, port: 8000 }
+---
+# Lets the StudyAtrium server pods call POST /internal/users/{user_id}/purge (account deletion,
+# account_purge.py) over the Service. The studylife repo's pods live in namespace
+# studylife-scale (k8s/00-namespace.yaml there) and are labelled app=studylife-web (the
+# Blazor/API server) and app=studylife-worker (background jobs, which is where an outbox
+# retry may run). Nothing else in the cluster gets in this way, and /internal is not on the
+# public Funnel allowlist (k8s/07-tailscale-funnel.yaml). The matching egress rule on the
+# studylife-scale side (its allow-app-egress policy) belongs to the studylife repo.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-studylife-server-to-studylife-mcp
+  namespace: studylife-mcp
+spec:
+  podSelector: { matchLabels: { app: studylife-mcp } }
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: studylife-scale } }
+          podSelector: { matchLabels: { app: studylife-web } }
+        - namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: studylife-scale } }
+          podSelector: { matchLabels: { app: studylife-worker } }
       ports:
         - { protocol: TCP, port: 8000 }
 

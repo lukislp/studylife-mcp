@@ -3,7 +3,7 @@ import hmac
 import logging
 import secrets
 import time
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Collection
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 
@@ -38,6 +38,28 @@ class _ConsentRow:
     binding_hash: str
     csrf_token: str
     approved_at: float | None
+
+
+@dataclass(frozen=True)
+class PurgeCounts:
+    """Rows removed by OAuthStore.purge_subjects(), per table - counts only, so it can be
+    logged without carrying any identifier."""
+
+    user_keys: int = 0
+    access_tokens: int = 0
+    refresh_tokens: int = 0
+    auth_codes: int = 0
+    management_sessions: int = 0
+
+    @property
+    def total(self) -> int:
+        return (
+            self.user_keys
+            + self.access_tokens
+            + self.refresh_tokens
+            + self.auth_codes
+            + self.management_sessions
+        )
 
 
 _SCHEMA = """
@@ -122,6 +144,11 @@ CLEANUP_INTERVAL_SECONDS = 60 * 60
 # UNUSED_CLIENT_TTL_SECONDS' own headroom.
 TOKEN_PURGE_GRACE_SECONDS = 60 * 60 * 24
 
+# user_keys rows are written at login, a moment BEFORE the first token for that subject is
+# saved. The periodic sweep (cleanup_orphaned_user_keys) therefore leaves rows younger than
+# this alone, so it can never delete the key of a login that is still being completed.
+ORPHANED_USER_KEY_MIN_AGE_SECONDS = 60 * 60
+
 # How long a "prove you own this StudyLife key" verification on /connected-apps stays
 # usable for follow-up actions (viewing the list again, revoking an entry) before the
 # StudyLife key has to be re-entered. Short-lived on purpose - this page reveals which
@@ -134,6 +161,18 @@ MANAGEMENT_SESSION_TTL_SECONDS = 600
 _TOKEN_TABLES: tuple[tuple[str, type[AccessToken] | type[RefreshToken]], ...] = (
     ("access_tokens", AccessToken),
     ("refresh_tokens", RefreshToken),
+)
+
+
+# (table, key column, model) for every table whose rows carry a `subject` inside their JSON
+# payload (token_json / code_json) - the subject filters below run in Python, see
+# list_connected_clients() for why.
+_SUBJECT_TABLES: tuple[
+    tuple[str, str, str, type[AccessToken] | type[RefreshToken] | type[AuthorizationCode]], ...
+] = (
+    ("access_tokens", "token", "token_json", AccessToken),
+    ("refresh_tokens", "token", "token_json", RefreshToken),
+    ("auth_codes", "code", "code_json", AuthorizationCode),
 )
 
 
@@ -302,6 +341,9 @@ class OAuthStore:
             deleted_tokens = await self.cleanup_expired_tokens()
             if deleted_tokens:
                 logger.info("periodic_cleanup deleted_tokens=%s", deleted_tokens)
+            deleted_keys = await self.cleanup_orphaned_user_keys()
+            if deleted_keys:
+                logger.info("periodic_cleanup deleted_user_keys=%s", deleted_keys)
 
     async def register_client(self, client_info: OAuthClientInformationFull) -> None:
         async with self._connection() as conn:
@@ -709,27 +751,122 @@ class OAuthStore:
         return results
 
     async def revoke_client_access(self, subject: str, client_id: str) -> None:
-        """Deletes every access/refresh token this subject has for this client - the
+        """Removes every access/refresh token this subject has for this client - the
         client keeps its DCR registration (client_id/secret), but has to go through a
         fresh /authorize -> /login round trip (a real StudyLife-key re-entry) to get
-        anything working again, exactly like a first-time connection."""
+        anything working again, exactly like a first-time connection. When that was the
+        subject's last token for any client, its stored (encrypted) StudyLife key goes
+        too - nothing can use it any more, and the next login saves it again."""
         async with self._connection() as conn:
-            for table in ("access_tokens", "refresh_tokens"):
-                cursor = await conn.execute(
-                    f"SELECT token, token_json FROM {table} WHERE client_id = ?",
-                    (client_id,),
+            for table, key_column, json_column, model in _SUBJECT_TABLES[:2]:
+                stale = await _keys_for_subjects(
+                    conn, table, key_column, json_column, model, {subject}, client_id=client_id
                 )
-                rows = await cursor.fetchall()
-                model = AccessToken if table == "access_tokens" else RefreshToken
-                stale_tokens = [
-                    token
-                    for token, token_json in rows
-                    if model.model_validate_json(token_json).subject == subject
-                ]
-                if stale_tokens:
-                    placeholders = ",".join("?" for _ in stale_tokens)
-                    await conn.execute(
-                        f"DELETE FROM {table} WHERE token IN ({placeholders})",
-                        stale_tokens,
-                    )
+                await _remove_keys(conn, table, key_column, stale)
+            await _remove_user_keys_without_tokens(conn, candidates={subject})
             await conn.commit()
+
+    async def cleanup_orphaned_user_keys(self) -> int:
+        """Removes user_keys rows whose subject has no access/refresh token left for any
+        client (expired tokens are swept by cleanup_expired_tokens() first, see
+        run_periodic_cleanup()). Rows younger than ORPHANED_USER_KEY_MIN_AGE_SECONDS are
+        kept: a login saves the key a moment before its first token. Returns the number
+        of rows removed."""
+        async with self._connection() as conn:
+            removed = await _remove_user_keys_without_tokens(
+                conn, older_than=time.time() - ORPHANED_USER_KEY_MIN_AGE_SECONDS
+            )
+            await conn.commit()
+            return removed
+
+    async def purge_subjects(self, subjects: Collection[str]) -> PurgeCounts:
+        """Account deletion (GDPR Art. 17): removes everything stored for these OAuth
+        subjects - the encrypted StudyLife key, access/refresh tokens, pending
+        authorization codes and management sessions - in one transaction. A subject is
+        str(userId) for grants made through the connect flow and sha256(key) for legacy
+        ones (subject_for_key), so callers pass both. Idempotent: unknown subjects and
+        repeat calls remove nothing and return zero counts. OAuth client registrations
+        are not per-user data and stay."""
+        wanted = set(subjects)
+        if not wanted:
+            return PurgeCounts()
+        counts: dict[str, int] = {}
+        async with self._connection() as conn:
+            for table, key_column, json_column, model in _SUBJECT_TABLES:
+                keys = await _keys_for_subjects(conn, table, key_column, json_column, model, wanted)
+                counts[table] = await _remove_keys(conn, table, key_column, keys)
+            placeholders = ",".join("?" for _ in wanted)
+            for table in ("user_keys", "management_sessions"):
+                cursor = await conn.execute(
+                    f"DELETE FROM {table} WHERE subject IN ({placeholders})", list(wanted)
+                )
+                counts[table] = cursor.rowcount
+            await conn.commit()
+        return PurgeCounts(
+            user_keys=counts["user_keys"],
+            access_tokens=counts["access_tokens"],
+            refresh_tokens=counts["refresh_tokens"],
+            auth_codes=counts["auth_codes"],
+            management_sessions=counts["management_sessions"],
+        )
+
+
+async def _keys_for_subjects(
+    conn: aiosqlite.Connection,
+    table: str,
+    key_column: str,
+    json_column: str,
+    model: type[AccessToken] | type[RefreshToken] | type[AuthorizationCode],
+    subjects: Collection[str],
+    *,
+    client_id: str | None = None,
+) -> list[str]:
+    """Primary keys of the rows in `table` whose JSON payload names one of `subjects`
+    (optionally only for one client). Filtered in Python because the subject lives inside
+    the JSON, not in a column."""
+    query = f"SELECT {key_column}, {json_column} FROM {table}"
+    params: tuple[str, ...] = ()
+    if client_id is not None:
+        query += " WHERE client_id = ?"
+        params = (client_id,)
+    cursor = await conn.execute(query, params)
+    rows = await cursor.fetchall()
+    return [
+        str(key) for key, payload in rows if model.model_validate_json(payload).subject in subjects
+    ]
+
+
+async def _remove_keys(
+    conn: aiosqlite.Connection, table: str, key_column: str, keys: list[str]
+) -> int:
+    if not keys:
+        return 0
+    placeholders = ",".join("?" for _ in keys)
+    cursor = await conn.execute(f"DELETE FROM {table} WHERE {key_column} IN ({placeholders})", keys)
+    return cursor.rowcount
+
+
+async def _remove_user_keys_without_tokens(
+    conn: aiosqlite.Connection,
+    *,
+    candidates: Collection[str] | None = None,
+    older_than: float | None = None,
+) -> int:
+    """Removes user_keys rows (optionally only `candidates`, optionally only rows created
+    before `older_than`) whose subject has no access/refresh token row left."""
+    in_use: set[str] = set()
+    for table, _key_column, json_column, model in _SUBJECT_TABLES[:2]:
+        cursor = await conn.execute(f"SELECT {json_column} FROM {table}")
+        for (payload,) in await cursor.fetchall():
+            subject = model.model_validate_json(payload).subject
+            if subject is not None:
+                in_use.add(subject)
+    cursor = await conn.execute("SELECT subject, created_at FROM user_keys")
+    orphaned = [
+        str(subject)
+        for subject, created_at in await cursor.fetchall()
+        if subject not in in_use
+        and (candidates is None or subject in candidates)
+        and (older_than is None or created_at < older_than)
+    ]
+    return await _remove_keys(conn, "user_keys", "subject", orphaned)
