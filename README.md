@@ -102,7 +102,10 @@ HTTP+OAuth mode resolves each authenticated caller to *their own* StudyAtrium
 account: `authorize()` redirects the user's browser to StudyAtrium's own
 `/connect/mcp` page — StudyAtrium handles the passkey login and consent, then
 redirects back to this server's `/auth/studylife/callback` with a single-use
-assertion. This server exchanges that assertion server-to-server for the
+assertion. The connect request carries a PKCE (RFC 7636, S256) challenge; the
+verifier is kept server-side with the pending authorization and sent only in the
+assertion exchange (`studylife-mcp-login` does the same with a per-run verifier).
+This server exchanges that assertion server-to-server for the
 caller's real StudyAtrium user id and a freshly rotated MCP API key, and binds
 every access/refresh token issued from that login to that user id (not a hash
 of the key — see [docs/decisions.md](docs/decisions.md) "Identity Contract v1"
