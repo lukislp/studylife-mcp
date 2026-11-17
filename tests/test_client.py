@@ -1,3 +1,4 @@
+import json
 import re
 import ssl
 from datetime import UTC, datetime, timedelta
@@ -391,6 +392,31 @@ async def test_exchange_mcp_assertion_happy_path(settings: Settings) -> None:
     result = await exchange_mcp_assertion(settings, "a-single-use-assertion")
 
     assert result == (42, "rotated-key")
+
+
+@respx.mock
+async def test_exchange_mcp_assertion_sends_code_verifier(settings: Settings) -> None:
+    route = respx.post("https://studylife.example.test/api/auth/mcp-assertion-exchange").mock(
+        return_value=httpx.Response(200, json={"userId": 42, "mcpApiKey": "rotated-key"})
+    )
+
+    await exchange_mcp_assertion(settings, "an-assertion", "a-verifier")
+
+    assert json.loads(route.calls.last.request.content) == {
+        "assertion": "an-assertion",
+        "codeVerifier": "a-verifier",
+    }
+
+
+@respx.mock
+async def test_exchange_mcp_assertion_without_verifier_omits_field(settings: Settings) -> None:
+    route = respx.post("https://studylife.example.test/api/auth/mcp-assertion-exchange").mock(
+        return_value=httpx.Response(200, json={"userId": 42, "mcpApiKey": "rotated-key"})
+    )
+
+    await exchange_mcp_assertion(settings, "an-assertion")
+
+    assert json.loads(route.calls.last.request.content) == {"assertion": "an-assertion"}
 
 
 @respx.mock

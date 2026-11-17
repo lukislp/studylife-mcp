@@ -35,6 +35,7 @@ from pydantic import HttpUrl, ValidationError
 
 from studylife_mcp.client import AssertionExchangeError, exchange_mcp_assertion_verbose
 from studylife_mcp.config import Settings
+from studylife_mcp.pkce import new_pkce_pair
 
 # Generous default: a passkey login plus any consent-screen friction, but still finite
 # so a closed/abandoned browser tab doesn't hang the CLI forever.
@@ -197,12 +198,20 @@ def run_login(
 
     base_url = str(settings.studylife_base_url).rstrip("/")
     state_token = secrets.token_urlsafe(32)
+    # PKCE (RFC 7636): the verifier stays in this process; only its challenge is sent.
+    code_verifier, code_challenge = new_pkce_pair()
 
     callback_server = _CallbackHTTPServer()
     redirect_uri = f"http://127.0.0.1:{callback_server.port}/callback"
-    connect_url = (
-        f"{base_url}/connect/mcp?{urlencode({'redirect_uri': redirect_uri, 'state': state_token})}"
+    query = urlencode(
+        {
+            "redirect_uri": redirect_uri,
+            "state": state_token,
+            "code_challenge": code_challenge,
+            "code_challenge_method": "S256",
+        }
     )
+    connect_url = f"{base_url}/connect/mcp?{query}"
 
     print(f"Opening your browser to log in to StudyAtrium:\n  {connect_url}")
     print("Waiting for you to finish logging in and approving the connection...")
@@ -241,7 +250,7 @@ def run_login(
 
     try:
         _user_id, mcp_api_key = anyio.run(
-            exchange_mcp_assertion_verbose, settings, result.assertion
+            exchange_mcp_assertion_verbose, settings, result.assertion, code_verifier
         )
     except AssertionExchangeError as exc:
         print(f"Login failed: {exc}", file=sys.stderr)

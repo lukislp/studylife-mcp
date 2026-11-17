@@ -37,6 +37,7 @@ from studylife_mcp.oauth_store import (
     ConnectedClient,
     OAuthStore,
 )
+from studylife_mcp.pkce import new_pkce_pair
 
 # Single scope: no per-tool/read-vs-write scoping exists yet (every tool is available
 # to any authenticated caller, same as stdio mode) - revisit if that ever needs to
@@ -124,12 +125,25 @@ class StudyLifeOAuthProvider(
         )
         return f"{self._public_url}/auth/consent?{urlencode({'request_id': request_id})}"
 
-    def studylife_connect_url(self, request_id: str) -> str:
+    async def studylife_connect_url(self, request_id: str) -> str:
         """Where an approved consent continues: StudyLife's /connect/mcp page
         (identity-contract-v1 section 2 step 1), which logs the user in and redirects
-        back to /auth/studylife/callback with an assertion and `request_id` as state."""
+        back to /auth/studylife/callback with an assertion and `request_id` as state.
+
+        Carries a fresh PKCE challenge (RFC 7636, audit M5); the matching verifier is
+        saved server-side with the pending authorization and only read back by the
+        callback for the assertion exchange."""
+        verifier, challenge = new_pkce_pair()
+        await self._store.save_code_verifier(request_id, verifier)
         callback_url = f"{self._public_url}/auth/studylife/callback"
-        query = urlencode({"redirect_uri": callback_url, "state": request_id})
+        query = urlencode(
+            {
+                "redirect_uri": callback_url,
+                "state": request_id,
+                "code_challenge": challenge,
+                "code_challenge_method": "S256",
+            }
+        )
         return f"{self._connect_url}/connect/mcp?{query}"
 
     async def load_authorization_code(
@@ -614,7 +628,8 @@ def register_oauth_routes(
         if decision == "approve":
             if not await store.approve_pending_authorization(request_id, binding_hash, csrf_token):
                 return HTMLResponse(_OTHER_BROWSER_HTML, status_code=403)
-            return RedirectResponse(provider.studylife_connect_url(request_id), status_code=303)
+            connect_url = await provider.studylife_connect_url(request_id)
+            return RedirectResponse(connect_url, status_code=303)
 
         if decision == "deny":
             denied = await store.deny_pending_authorization(request_id, binding_hash, csrf_token)
@@ -657,7 +672,9 @@ def register_oauth_routes(
         if not assertion:
             return HTMLResponse(_CONNECT_FAILED_HTML, status_code=400)
 
-        exchanged = await exchange_mcp_assertion(settings, assertion)
+        # The PKCE verifier saved when the browser was sent to StudyAtrium; single use.
+        code_verifier = await store.take_code_verifier(state)
+        exchanged = await exchange_mcp_assertion(settings, assertion, code_verifier)
         if exchanged is None:
             return HTMLResponse(_CONNECT_FAILED_HTML, status_code=401)
         user_id, mcp_api_key = exchanged

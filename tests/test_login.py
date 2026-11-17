@@ -1,3 +1,4 @@
+import json
 import threading
 from pathlib import Path
 from urllib.parse import parse_qs, urlencode, urlparse
@@ -13,6 +14,7 @@ from studylife_mcp.login import (
     _write_env_var,
     run_login,
 )
+from studylife_mcp.pkce import challenge_for
 
 EXCHANGE_URL = "https://studylife.example.test/api/auth/mcp-assertion-exchange"
 
@@ -191,6 +193,32 @@ def test_run_login_happy_path_writes_key_and_reports_destination(
     assert "rotated-key" not in out  # the key itself must never be printed
     assert "/connect/mcp" in captured_urls[0]
     assert "redirect_uri=http%3A%2F%2F127.0.0.1%3A" in captured_urls[0]
+
+
+@respx.mock
+def test_run_login_sends_pkce_challenge_and_exchanges_with_verifier(tmp_path: Path) -> None:
+    respx.route(host="127.0.0.1").pass_through()
+    exchange = respx.post(EXCHANGE_URL).mock(
+        return_value=httpx.Response(200, json={"userId": 42, "mcpApiKey": "rotated-key"})
+    )
+    captured_urls, fake_open = _browser_that_calls_back()
+
+    exit_code = run_login(
+        base_url_override="https://studylife.example.test",
+        env_path=tmp_path / ".env",
+        timeout_seconds=10,
+        open_browser=fake_open,  # type: ignore[arg-type]
+    )
+
+    assert exit_code == 0
+    query = parse_qs(urlparse(captured_urls[0]).query)
+    assert query["code_challenge_method"] == ["S256"]
+    body = json.loads(exchange.calls.last.request.content)
+    assert body["assertion"] == "server-issued-assertion"
+    # The verifier in the exchange body is the one behind the challenge in the URL,
+    # and it never appeared in the URL itself.
+    assert query["code_challenge"] == [challenge_for(body["codeVerifier"])]
+    assert body["codeVerifier"] not in captured_urls[0]
 
 
 @respx.mock

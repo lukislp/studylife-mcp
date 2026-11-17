@@ -144,23 +144,29 @@ class AssertionExchangeError(Exception):
     StudyLife's raw response text back to them."""
 
 
-async def exchange_mcp_assertion_verbose(settings: Settings, assertion: str) -> tuple[int, str]:
+async def exchange_mcp_assertion_verbose(
+    settings: Settings, assertion: str, code_verifier: str | None = None
+) -> tuple[int, str]:
     """Same server-to-server exchange as exchange_mcp_assertion (see its docstring for the
     protocol details), but raises AssertionExchangeError with a descriptive message
     instead of returning None on failure. Talks directly to studylife_base_url
     (cluster-internal, same CA as StudyLifeClient) rather than going through a
     StudyLifeClient instance - this endpoint is exempt from the X-Api-Key gate by design
     (the assertion itself is the credential), so no key is needed or sent.
+    `code_verifier` is the PKCE verifier (RFC 7636) whose S256 challenge went out with the
+    consent request; it is sent as `codeVerifier` next to the assertion. None omits it, for
+    a flow that started before PKCE existed.
     """
+    body = {"assertion": assertion}
+    if code_verifier is not None:
+        body["codeVerifier"] = code_verifier
     async with httpx.AsyncClient(
         base_url=str(settings.studylife_base_url),
         timeout=10.0,
         verify=_build_ssl_context(settings.studylife_ca_cert_path),
     ) as http_client:
         try:
-            response = await http_client.post(
-                "/api/auth/mcp-assertion-exchange", json={"assertion": assertion}
-            )
+            response = await http_client.post("/api/auth/mcp-assertion-exchange", json=body)
         except httpx.HTTPError as exc:
             raise AssertionExchangeError(f"Could not reach StudyAtrium: {exc}") from exc
     if response.status_code != 200:
@@ -174,7 +180,9 @@ async def exchange_mcp_assertion_verbose(settings: Settings, assertion: str) -> 
         raise AssertionExchangeError("StudyAtrium returned an unexpected response shape.") from exc
 
 
-async def exchange_mcp_assertion(settings: Settings, assertion: str) -> tuple[int, str] | None:
+async def exchange_mcp_assertion(
+    settings: Settings, assertion: str, code_verifier: str | None = None
+) -> tuple[int, str] | None:
     """Server-to-server exchange of a single-use MCP connect assertion (identity-contract-v1
     section 2 step 5) for the StudyLife user id and a freshly rotated MCP API key.
     Returns (userId, mcpApiKey), or None on any failure - expired/unknown assertion, network
@@ -183,6 +191,6 @@ async def exchange_mcp_assertion(settings: Settings, assertion: str) -> tuple[in
     that discards its error detail for exactly that reason.
     """
     try:
-        return await exchange_mcp_assertion_verbose(settings, assertion)
+        return await exchange_mcp_assertion_verbose(settings, assertion, code_verifier)
     except AssertionExchangeError:
         return None

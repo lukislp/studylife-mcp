@@ -212,6 +212,21 @@ async def test_pending_authorization_round_trip_and_delete(store: OAuthStore) ->
     assert await store.load_pending_authorization("req-1") is None
 
 
+async def test_code_verifier_is_stored_with_pending_state_and_taken_once(
+    store: OAuthStore,
+) -> None:
+    await store.save_pending_authorization("req-1", "client-1", "{}")
+    assert await store.take_code_verifier("req-1") is None  # nothing saved yet
+
+    await store.save_code_verifier("req-1", "verifier-1")
+    assert await store.take_code_verifier("req-1") == "verifier-1"
+    assert await store.take_code_verifier("req-1") is None  # single use
+
+
+async def test_code_verifier_unknown_request_returns_none(store: OAuthStore) -> None:
+    assert await store.take_code_verifier("nope") is None
+
+
 async def test_pending_authorization_expires(store: OAuthStore) -> None:
     import studylife_mcp.oauth_store as oauth_store_module
 
