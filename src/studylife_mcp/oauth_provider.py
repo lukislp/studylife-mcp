@@ -387,7 +387,7 @@ _OTHER_BROWSER_HTML = f"""<!doctype html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Connection not confirmed &mdash; StudyLife</title>
+<title>Connection not confirmed &mdash; StudyAtrium</title>
 <style>{_PAGE_STYLE}</style>
 </head>
 <body>
@@ -423,13 +423,13 @@ def _render_consent_page(
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Allow access? &mdash; StudyLife</title>
+<title>Allow access? &mdash; StudyAtrium</title>
 <style>{_PAGE_STYLE}</style>
 </head>
 <body>
 <div class="card">
 {_BRAND_HTML}
-<h1>Allow access to your StudyLife account?</h1>
+<h1>Allow access to your StudyAtrium account?</h1>
 <p>An app wants to read your notes, sessions and goals and create notes and sessions
 on your behalf.</p>
 <dl class="consent-detail">

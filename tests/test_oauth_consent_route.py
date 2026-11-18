@@ -139,6 +139,9 @@ async def test_happy_path_consent_then_callback_issues_code_to_same_browser(
     assert "Legit &lt;b&gt;App&lt;/b&gt;" in page.text
     assert "<b>App</b>" not in page.text
     assert "client.example" in page.text
+    # The public brand, not the former product name.
+    assert "Allow access to your StudyAtrium account?" in page.text
+    assert "StudyLife" not in page.text
     # Clickjacking / caching protection on a one-click grant page.
     assert page.headers["x-frame-options"] == "DENY"
     assert "frame-ancestors 'none'" in page.headers["content-security-policy"]
