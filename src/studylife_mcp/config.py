@@ -1,4 +1,4 @@
-from pydantic import AnyHttpUrl, HttpUrl
+from pydantic import AnyHttpUrl, Field, HttpUrl
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -59,6 +59,15 @@ class Settings(BaseSettings):
     # SQLite file for OAuth clients/codes/tokens/per-user StudyLife keys (oauth_store.py).
     # Relative to the working directory the server is started from; gitignored like .env.
     mcp_oauth_db_path: str = "oauth.db"
+
+    # Retention of short-lived auth state (audit 2026-11-19 S6, see RetentionPolicy in
+    # oauth_store.py): seconds a row is kept after it expired. Management sessions and
+    # unfinished authorizations expire after 10 minutes, authorization codes after 5.
+    mcp_retention_management_session_seconds: float = Field(default=3600, ge=0)
+    mcp_retention_pending_auth_seconds: float = Field(default=0, ge=0)
+    mcp_retention_auth_code_seconds: float = Field(default=0, ge=0)
+    # How often the background sweep runs.
+    mcp_cleanup_interval_seconds: float = Field(default=3600, gt=0)
 
     # Shared secret for POST /internal/users/{user_id}/purge (account_purge.py), sent by the
     # StudyAtrium server as X-StudyLife-Shared-Secret when an account is deleted. Unset

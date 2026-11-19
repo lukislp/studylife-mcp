@@ -157,6 +157,27 @@ ORPHANED_USER_KEY_MIN_AGE_SECONDS = 60 * 60
 MANAGEMENT_SESSION_TTL_SECONDS = 600
 
 
+@dataclass(frozen=True)
+class RetentionPolicy:
+    """Retention of short-lived auth state (audit 2026-11-19 S6). Each grace value is the
+    number of seconds a row is kept *after it expired*; rows are unusable from the moment
+    they expire, so this is pure storage hygiene and never changes behaviour.
+
+    - management_session_grace_seconds: /connected-apps sessions (TTL 10 minutes).
+    - pending_auth_grace_seconds: authorizations that were started but never completed
+      (TTL 10 minutes).
+    - auth_code_grace_seconds: authorization codes (TTL 5 minutes). Used codes are deleted
+      on exchange; expired ones go on the next sweep or the next code written.
+    - sweep_interval_seconds: how often the periodic sweep runs; None means
+      CLEANUP_INTERVAL_SECONDS (one hour).
+    """
+
+    management_session_grace_seconds: float = 60 * 60
+    pending_auth_grace_seconds: float = 0
+    auth_code_grace_seconds: float = 0
+    sweep_interval_seconds: float | None = None
+
+
 # (table, model) pairs whose `token` column is stored hashed - see token_hash.py.
 _TOKEN_TABLES: tuple[tuple[str, type[AccessToken] | type[RefreshToken]], ...] = (
     ("access_tokens", AccessToken),
@@ -188,8 +209,14 @@ class OAuthStore:
     scale this personal-use server actually sees; revisit only if that changes.
     """
 
-    def __init__(self, db_path: str, encryption_key: str) -> None:
+    def __init__(
+        self,
+        db_path: str,
+        encryption_key: str,
+        retention: RetentionPolicy | None = None,
+    ) -> None:
         self._db_path = db_path
+        self._retention = retention or RetentionPolicy()
         self._fernet = Fernet(encryption_key.encode())
 
     @asynccontextmanager
@@ -239,7 +266,32 @@ class OAuthStore:
                         raise
             for table, model in _TOKEN_TABLES:
                 await self._hash_legacy_tokens(conn, table, model)
+            await self._migrate_legacy_auth_codes(conn)
             await conn.commit()
+
+    @staticmethod
+    async def _migrate_legacy_auth_codes(conn: aiosqlite.Connection) -> None:
+        """Audit 2026-11-19 S6: authorization codes used to be stored in plaintext (the
+        `code` column and inside code_json). Codes live five minutes, so on upgrade the
+        expired ones are deleted and each still-valid one is rewritten in place - hashed
+        key, redacted JSON - so a login that is mid-flight during the deploy can still be
+        exchanged. Idempotent: already-hashed rows are skipped, a clean table is a no-op."""
+        cursor = await conn.execute("SELECT code, code_json, expires_at FROM auth_codes")
+        now = time.time()
+        for stored, code_json, expires_at in await cursor.fetchall():
+            if is_hashed(stored):
+                continue
+            if expires_at < now:
+                await conn.execute("DELETE FROM auth_codes WHERE code = ?", (stored,))
+                continue
+            digest = hash_token(stored)
+            redacted = AuthorizationCode.model_validate_json(code_json).model_copy(
+                update={"code": digest}
+            )
+            await conn.execute(
+                "UPDATE auth_codes SET code = ?, code_json = ? WHERE code = ?",
+                (digest, redacted.model_dump_json(), stored),
+            )
 
     @staticmethod
     async def _hash_legacy_tokens(
@@ -301,25 +353,18 @@ class OAuthStore:
             return cursor.rowcount
 
     async def cleanup_expired_tokens(self) -> int:
-        """Deletes access_tokens/refresh_tokens/auth_codes rows whose expires_at is more
-        than TOKEN_PURGE_GRACE_SECONDS in the past. Returns the number of rows deleted
-        (all three tables combined). Rows with expires_at IS NULL (no TTL - only
-        possible for access_tokens/refresh_tokens, auth_codes.expires_at is NOT NULL)
-        are never touched. auth_codes rows are usually gone already - exchange_
-        authorization_code() deletes a code the moment it's used (single-use, RFC 6749
-        §10.5) - this only catches ones nobody ever exchanged (abandoned flow, code
-        never redeemed). Given AUTHORIZATION_CODE_TTL_SECONDS is 5 minutes vs. refresh
-        tokens' 90 days, the same day-long grace period here is purely a hygiene sweep,
-        never a behavior change - by the time a code is old enough to be swept, it's
-        been rejected as expired by the SDK's own /token handler (and by
-        load_authorization_code below) for nearly 24 hours already. Called only from
+        """Deletes access_tokens/refresh_tokens rows whose expires_at is more than
+        TOKEN_PURGE_GRACE_SECONDS in the past. Returns the number of rows deleted. Rows
+        with expires_at IS NULL (no TTL) are never touched. Authorization codes are not
+        handled here - they have their own, much shorter retention, see
+        cleanup_expired_auth_state(). Called only from
         run_periodic_cleanup() below - unlike cleanup_expired_clients(), there's no
         natural per-request event to hang an opportunistic call off of, so the periodic
         sweep is the only trigger."""
         cutoff = time.time() - TOKEN_PURGE_GRACE_SECONDS
         async with self._connection() as conn:
             deleted = 0
-            for table in ("access_tokens", "refresh_tokens", "auth_codes"):
+            for table in ("access_tokens", "refresh_tokens"):
                 cursor = await conn.execute(
                     f"DELETE FROM {table} WHERE expires_at IS NOT NULL AND expires_at < ?",
                     (cutoff,),
@@ -327,6 +372,38 @@ class OAuthStore:
                 deleted += cursor.rowcount
             await conn.commit()
             return deleted
+
+    async def cleanup_expired_auth_state(self) -> dict[str, int]:
+        """Audit 2026-11-19 S6: deletes expired short-lived auth state according to the
+        RetentionPolicy. Returns the rows removed per table.
+
+        - auth_codes past expires_at + auth_code_grace_seconds (codes already used are
+          gone, exchange deletes them);
+        - pending_auth rows that were never completed, past PENDING_AUTH_TTL_SECONDS +
+          pending_auth_grace_seconds (a completed or denied one is deleted on the spot);
+        - management_sessions past MANAGEMENT_SESSION_TTL_SECONDS +
+          management_session_grace_seconds."""
+        now = time.time()
+        policy = self._retention
+        async with self._connection() as conn:
+            codes = await conn.execute(
+                "DELETE FROM auth_codes WHERE expires_at < ?",
+                (now - policy.auth_code_grace_seconds,),
+            )
+            pending = await conn.execute(
+                "DELETE FROM pending_auth WHERE created_at < ?",
+                (now - PENDING_AUTH_TTL_SECONDS - policy.pending_auth_grace_seconds,),
+            )
+            sessions = await conn.execute(
+                "DELETE FROM management_sessions WHERE created_at < ?",
+                (now - MANAGEMENT_SESSION_TTL_SECONDS - policy.management_session_grace_seconds,),
+            )
+            await conn.commit()
+            return {
+                "auth_codes": codes.rowcount,
+                "pending_auth": pending.rowcount,
+                "management_sessions": sessions.rowcount,
+            }
 
     async def run_periodic_cleanup(self) -> None:
         """Background loop (started alongside the HTTP server in server.py's
@@ -340,13 +417,17 @@ class OAuthStore:
         sweep is the only thing bounding access_tokens/refresh_tokens/auth_codes
         growth. Runs forever; the caller cancels it on shutdown."""
         while True:
-            await anyio.sleep(CLEANUP_INTERVAL_SECONDS)
+            interval = self._retention.sweep_interval_seconds
+            await anyio.sleep(CLEANUP_INTERVAL_SECONDS if interval is None else interval)
             deleted_clients = await self.cleanup_expired_clients()
             if deleted_clients:
                 logger.info("periodic_cleanup deleted_clients=%s", deleted_clients)
             deleted_tokens = await self.cleanup_expired_tokens()
             if deleted_tokens:
                 logger.info("periodic_cleanup deleted_tokens=%s", deleted_tokens)
+            deleted_state = await self.cleanup_expired_auth_state()
+            if any(deleted_state.values()):
+                logger.info("periodic_cleanup deleted_auth_state=%s", deleted_state)
             deleted_keys = await self.cleanup_orphaned_user_keys()
             if deleted_keys:
                 logger.info("periodic_cleanup deleted_user_keys=%s", deleted_keys)
@@ -542,11 +623,19 @@ class OAuthStore:
     # --- authorization codes ---
 
     async def save_authorization_code(self, code: AuthorizationCode) -> None:
+        digest = hash_token(code.code)
+        stored = code.model_copy(update={"code": digest})
         async with self._connection() as conn:
+            # Opportunistic purge (like register_client): codes are written exactly when
+            # new ones may pile up, so expired ones never wait for the hourly sweep.
+            await conn.execute(
+                "DELETE FROM auth_codes WHERE expires_at < ?",
+                (time.time() - self._retention.auth_code_grace_seconds,),
+            )
             await conn.execute(
                 "INSERT OR REPLACE INTO auth_codes "
                 "(code, client_id, code_json, expires_at) VALUES (?, ?, ?, ?)",
-                (code.code, code.client_id, code.model_dump_json(), code.expires_at),
+                (digest, code.client_id, stored.model_dump_json(), code.expires_at),
             )
             await conn.commit()
 
@@ -562,18 +651,24 @@ class OAuthStore:
         doesn't change externally observable behavior there - only the error_description
         text differs ('does not exist' vs 'has expired')."""
         async with self._connection() as conn:
-            cursor = await conn.execute("SELECT code_json FROM auth_codes WHERE code = ?", (code,))
+            cursor = await conn.execute(
+                "SELECT code_json FROM auth_codes WHERE code = ?", (hash_token(code),)
+            )
             row = await cursor.fetchone()
-        if row is None:
-            return None
-        loaded = AuthorizationCode.model_validate_json(row[0])
-        if loaded.expires_at < time.time():
-            return None
+            if row is None:
+                return None
+            # The stored JSON carries the digest, not the code - hand back the real one.
+            loaded = AuthorizationCode.model_validate_json(row[0]).model_copy(update={"code": code})
+            if loaded.expires_at < time.time():
+                # Expired and presented: delete it right away instead of waiting for a sweep.
+                await conn.execute("DELETE FROM auth_codes WHERE code = ?", (hash_token(code),))
+                await conn.commit()
+                return None
         return loaded
 
     async def delete_authorization_code(self, code: str) -> None:
         async with self._connection() as conn:
-            await conn.execute("DELETE FROM auth_codes WHERE code = ?", (code,))
+            await conn.execute("DELETE FROM auth_codes WHERE code = ?", (hash_token(code),))
             await conn.commit()
 
     # --- access / refresh tokens ---

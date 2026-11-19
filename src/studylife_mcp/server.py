@@ -17,7 +17,7 @@ from studylife_mcp.config import Settings
 from studylife_mcp.metrics import REGISTERED_CLIENTS, render_latest
 from studylife_mcp.models import Course, CourseGoal, Note, Session, configure_server_timezone
 from studylife_mcp.oauth_provider import SCOPE, StudyLifeOAuthProvider, register_oauth_routes
-from studylife_mcp.oauth_store import OAuthStore
+from studylife_mcp.oauth_store import OAuthStore, RetentionPolicy
 from studylife_mcp.rate_limit import McpCallRateLimitMiddleware, RegistrationRateLimitMiddleware
 
 # Audit log destination: stderr only, never stdout - stdout carries the stdio
@@ -45,7 +45,16 @@ if (
     and _settings.mcp_token_encryption_key is not None
     and _settings.studylife_connect_url is not None
 ):
-    _oauth_store = OAuthStore(_settings.mcp_oauth_db_path, _settings.mcp_token_encryption_key)
+    _oauth_store = OAuthStore(
+        _settings.mcp_oauth_db_path,
+        _settings.mcp_token_encryption_key,
+        RetentionPolicy(
+            management_session_grace_seconds=_settings.mcp_retention_management_session_seconds,
+            pending_auth_grace_seconds=_settings.mcp_retention_pending_auth_seconds,
+            auth_code_grace_seconds=_settings.mcp_retention_auth_code_seconds,
+            sweep_interval_seconds=_settings.mcp_cleanup_interval_seconds,
+        ),
+    )
     _public_url = str(_settings.mcp_public_url)
     _connect_url = str(_settings.studylife_connect_url)
     _provider = StudyLifeOAuthProvider(_oauth_store, _public_url, _connect_url)
