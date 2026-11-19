@@ -31,6 +31,7 @@ from studylife_mcp.consent import (
     new_browser_binding,
     new_csrf_token,
 )
+from studylife_mcp.fonts import font_face_css, register_font_route
 from studylife_mcp.oauth_store import (
     MANAGEMENT_SESSION_TTL_SECONDS,
     PENDING_AUTH_TTL_SECONDS,
@@ -233,8 +234,9 @@ class StudyLifeOAuthProvider(
 # login screen a caller lands on feels like part of StudyLife, not a generic OAuth form.
 # Duplicated here (not shared via a stylesheet link) because this page is served standalone
 # by this server, not by StudyLife itself.
-_PAGE_STYLE = """
-  @import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;1,9..40,300&display=swap');
+_PAGE_STYLE = (
+    font_face_css()
+    + """
   :root {
     color-scheme: dark light;
     --font: 'DM Sans', sans-serif;
@@ -318,6 +320,7 @@ _PAGE_STYLE = """
     cursor: pointer; transition: var(--transition); width: 100%;
   }
 """
+)
 
 _BRAND_HTML = (
     '<div class="brand"><span class="brand-icon">&#10022;</span>'
@@ -407,7 +410,7 @@ account - do not continue. Otherwise, restart the connection from your MCP clien
 # be cached or leak via Referer.
 _CONSENT_PAGE_HEADERS = {
     "X-Frame-Options": "DENY",
-    "Content-Security-Policy": "frame-ancestors 'none'",
+    "Content-Security-Policy": "frame-ancestors 'none'; font-src 'self'",
     "Cache-Control": "no-store",
     "Referrer-Policy": "no-referrer",
 }
@@ -578,6 +581,7 @@ def register_oauth_routes(
     pages. Kept separate from the OAuthAuthorizationServerProvider Protocol methods
     above - this is the specific piece that would change again if login were ever
     federated to a different IdP."""
+    register_font_route(mcp)
 
     # Unlike @mcp.tool(), the SDK's custom_route() has no return-type annotation,
     # so mypy can't see through it - narrow, sanctioned suppression.
