@@ -329,6 +329,16 @@ flagged in its tool's description as user-authored data, not instructions.
   tailnet/LAN-only `studylife-mcp.heim.lan` route. See
   [docs/decisions.md](docs/decisions.md).
 
+## Fonts
+
+The sign-in, consent and connected-apps pages use DM Sans, vendored as woff2 files in
+`src/studylife_mcp/fonts/` and served by this server at `/auth/consent/fonts/<file>` (see
+`fonts.py`), so a page view makes no request to Google Fonts or any other third party. The
+SIL Open Font License 1.1 notice is in `src/studylife_mcp/fonts/OFL.txt`. The path sits under
+`/auth/consent` so the public ingress allowlist forwards it without a change. The consent page's
+`Content-Security-Policy` adds `font-src 'self'`. `tests/test_fonts.py` fails if a page
+references an external host again or if a font is not served as `font/woff2`.
+
 ## Account deletion / purge
 
 When a StudyAtrium account is deleted, the StudyAtrium server calls every add-on that

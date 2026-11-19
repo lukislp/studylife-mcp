@@ -13,7 +13,9 @@ In HTTP mode (the remote, multi-user setup) the server keeps a SQLite database w
 - **OAuth clients** that registered themselves (client id, name, redirect URIs). These are
   not tied to a person.
 - **OAuth tokens and codes**: access tokens, refresh tokens (stored as hashes) and
-  short-lived authorization codes, each bound to your StudyAtrium user id.
+  authorization codes, each bound to your StudyAtrium user id. An authorization code is
+  short-lived (valid for five minutes) and single-use: it is deleted the moment it is
+  exchanged for tokens. Codes are stored in plain text for that short time, not hashed.
 - **Management sessions** for the `/connected-apps` page (a random session id, your user
   id, a CSRF token), valid for ten minutes.
 
@@ -23,6 +25,15 @@ of the arguments, the outcome and the duration, not the content.
 
 In stdio mode (Claude Desktop) nothing is stored by this server; the API key lives in your
 own `.env`.
+
+## Fonts and other resources
+
+The sign-in, consent and connected-apps pages use the DM Sans font (SIL Open Font License 1.1),
+which this server serves itself. Your browser loads nothing from Google or any other font host,
+CDN or third party when it shows these pages. Earlier versions loaded the font from Google Fonts,
+which sent your IP address to Google; that is no longer the case. The pages set only the
+cookies they need for the sign-in and management flow (browser binding and
+management session), no tracking cookies.
 
 ## Where tool results go
 
@@ -43,6 +54,11 @@ at `/connected-apps` when you no longer want a client to have it.
 - When your StudyAtrium account is deleted, StudyAtrium calls this server's purge endpoint
   and everything stored for you (key, tokens, codes, management sessions) is removed. See
   the README section "Account deletion / purge".
+
+## Controller and publisher
+
+Controller: the operator of your instance. Publisher: see the imprint at
+<https://lktec.org/impressum>.
 
 ## Contact
 
