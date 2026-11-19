@@ -15,7 +15,8 @@ In HTTP mode (the remote, multi-user setup) the server keeps a SQLite database w
 - **OAuth tokens and codes**: access tokens, refresh tokens (stored as hashes) and
   authorization codes, each bound to your StudyAtrium user id. An authorization code is
   short-lived (valid for five minutes) and single-use: it is deleted the moment it is
-  exchanged for tokens. Codes are stored in plain text for that short time, not hashed.
+  exchanged for tokens. Like the tokens, it is stored only as a SHA-256 hash, never in
+  plain text.
 - **Management sessions** for the `/connected-apps` page (a random session id, your user
   id, a CSRF token), valid for ten minutes.
 
@@ -45,8 +46,15 @@ at `/connected-apps` when you no longer want a client to have it.
 
 ## Retention and deletion
 
-- Access tokens expire after 1 hour, refresh tokens after 90 days; expired tokens and
-  unredeemed codes are removed by an hourly cleanup (after a one-day grace period).
+- Access tokens expire after 1 hour, refresh tokens after 90 days; expired tokens are
+  removed by an hourly cleanup (after a one-day grace period).
+- Authorization codes are deleted when they are used. An unredeemed or expired code is
+  deleted when the next code is issued or at the latest by the hourly cleanup, so it
+  does not outlive its five minutes by more than an hour.
+- Sign-in requests that were started but never completed are deleted by the hourly
+  cleanup once their ten minutes are up. Management sessions are deleted by the same
+  cleanup one hour after they expired. The operator can change these periods (see the
+  README, section "Retention of short-lived auth state").
 - Unused client registrations are removed after one day.
 - Revoking a client on `/connected-apps` removes its tokens; once no client is connected for
   your account, your stored encrypted key is removed too. The hourly cleanup also removes

@@ -244,6 +244,7 @@ and a real Tailscale-side incident hit along the way.
 | `STUDYLIFE_CONNECT_URL` | *(HTTP mode only)* StudyAtrium's own public/browser-facing base URL. The OAuth `authorize()` step redirects the user's browser here (`/connect/mcp`) to log in and consent - distinct from `STUDYLIFE_BASE_URL`, which the browser never talks to. |
 | `MCP_TOKEN_ENCRYPTION_KEY` | *(HTTP mode only)* Fernet key encrypting each user's StudyAtrium API key at rest in the OAuth store. |
 | `MCP_OAUTH_DB_PATH` | *(HTTP mode only)* SQLite file for OAuth clients/tokens/per-user keys. Default `oauth.db`. |
+| `MCP_RETENTION_MANAGEMENT_SESSION_SECONDS` / `MCP_RETENTION_PENDING_AUTH_SECONDS` / `MCP_RETENTION_AUTH_CODE_SECONDS` / `MCP_CLEANUP_INTERVAL_SECONDS` | *(HTTP mode only)* Retention of short-lived auth state, see [Retention of short-lived auth state](#retention-of-short-lived-auth-state). Defaults `3600` / `0` / `0` / `3600`. |
 | `MCP_HTTP_HOST` / `MCP_HTTP_PORT` | *(HTTP mode only)* Bind address. Defaults `127.0.0.1:8000` (`0.0.0.0` inside Docker). |
 | `STUDYLIFE_PURGE_SECRET` | *(HTTP mode only, optional)* Shared secret for the account-deletion purge call (see [Account deletion / purge](#account-deletion--purge)). Unset = that route answers 503. |
 
@@ -372,6 +373,32 @@ Independently of account deletion, revoking a client on `/connected-apps` remove
 user's stored key as soon as no client is connected any more, and the hourly cleanup also
 removes stored keys that no longer have any token. See [PRIVACY.md](PRIVACY.md) for what
 this server stores.
+
+## Retention of short-lived auth state
+
+Besides the hourly sweep of expired tokens and unused client registrations, the server
+deletes short-lived OAuth state once it has expired (GDPR audit 2026-11-19, S6). Each
+value is the number of seconds a row is kept *after* it expired; rows are unusable from
+the moment they expire, so this only bounds storage.
+
+| Data | Expires after | Kept after expiry (default) | Setting |
+|---|---|---|---|
+| Authorization codes | 5 minutes (or on use) | 0 s | `MCP_RETENTION_AUTH_CODE_SECONDS` |
+| Unfinished authorization requests (`pending_auth`) | 10 minutes | 0 s | `MCP_RETENTION_PENDING_AUTH_SECONDS` |
+| `/connected-apps` management sessions | 10 minutes | 3600 s | `MCP_RETENTION_MANAGEMENT_SESSION_SECONDS` |
+
+The sweep runs every `MCP_CLEANUP_INTERVAL_SECONDS` (default 3600). A used authorization
+code is deleted on exchange, an expired one when it is presented, and expired ones also
+whenever a new code is written, so codes never wait for the next sweep. Authorization
+codes are stored as SHA-256 hashes (like access and refresh tokens): the lookup hashes the
+presented code and the stored JSON carries the digest, so a copy of the database yields
+no redeemable code.
+
+**Upgrade note.** On the first start after this change, `initialize()` migrates rows
+written by older versions: expired plaintext codes are deleted, still-valid ones are
+hashed in place (a login in flight during the deploy still completes). The migration is
+idempotent. Unfinished authorization requests and management sessions from before the
+change are removed by the normal sweep.
 
 ## Observability
 

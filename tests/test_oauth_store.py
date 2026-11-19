@@ -9,7 +9,12 @@ from mcp.server.auth.provider import AccessToken, AuthorizationCode, RefreshToke
 from mcp.shared.auth import OAuthClientInformationFull
 from pydantic import AnyUrl
 
-from studylife_mcp.oauth_store import OAuthStore
+from studylife_mcp.oauth_store import (
+    MANAGEMENT_SESSION_TTL_SECONDS,
+    PENDING_AUTH_TTL_SECONDS,
+    OAuthStore,
+    RetentionPolicy,
+)
 from studylife_mcp.token_hash import hash_token
 
 
@@ -450,43 +455,6 @@ def _make_authorization_code(*, code: str, expires_at: float) -> AuthorizationCo
         redirect_uri_provided_explicitly=True,
         subject="user-subject",
     )
-
-
-async def test_cleanup_expired_tokens_also_purges_expired_auth_codes(store: OAuthStore) -> None:
-    """Abandoned auth codes (nobody ever completed the token exchange) accumulate just
-    like abandoned tokens - AUTHORIZATION_CODE_TTL_SECONDS is only 5 minutes, so by the
-    time TOKEN_PURGE_GRACE_SECONDS (1 day) has also passed, this is purely a storage
-    sweep: the code has already been unusable for nearly 24 hours via the SDK's own
-    /token handler and load_authorization_code's local expiry check."""
-    now = time.time()
-    await store.save_authorization_code(
-        _make_authorization_code(code="code-long-abandoned", expires_at=now - 60 * 60 * 24 * 2)
-    )
-    await store.save_authorization_code(
-        _make_authorization_code(code="code-live", expires_at=now + 300)
-    )
-
-    deleted = await store.cleanup_expired_tokens()
-
-    assert deleted == 1
-    assert await store.load_authorization_code("code-long-abandoned") is None
-    assert await store.load_authorization_code("code-live") is not None
-
-
-async def test_cleanup_expired_tokens_respects_grace_period_for_auth_codes(
-    store: OAuthStore,
-) -> None:
-    """A code that just expired (well within the grace period) survives the sweep -
-    same grace-period semantics as access/refresh tokens above. load_authorization_code
-    already treats it as gone regardless (tested separately) - the purge is on its own
-    slower clock."""
-    await store.save_authorization_code(
-        _make_authorization_code(code="code-just-expired", expires_at=time.time() - 10)
-    )
-
-    deleted = await store.cleanup_expired_tokens()
-
-    assert deleted == 0
 
 
 async def test_run_periodic_cleanup_also_sweeps_expired_tokens(store: OAuthStore) -> None:
@@ -1007,3 +975,233 @@ async def test_sweep_of_expired_tokens_then_keys_removes_a_lapsed_subjects_key(
 
     assert removed == 1
     assert await store.load_user_key("lapsed") is None
+
+
+# --- retention of short-lived auth state (audit 2026-11-19 S6) ---
+
+
+def _raw_codes(db_path: str) -> list[tuple[str, str]]:
+    with sqlite3.connect(db_path) as db:
+        return db.execute("SELECT code, code_json FROM auth_codes").fetchall()
+
+
+def _scalar_col(db_path: str, sql: str) -> list[tuple[str]]:
+    with sqlite3.connect(db_path) as db:
+        return db.execute(sql).fetchall()
+
+
+def _scalar(db_path: str, sql: str, params: tuple[object, ...] = ()) -> int:
+    with sqlite3.connect(db_path) as db:
+        return int(db.execute(sql, params).fetchone()[0])
+
+
+def _age_row(db_path: str, table: str, column: str, key_column: str, key: str, age: float) -> None:
+    """Pretend the row was written `age` seconds ago (created_at) / expired `age` ago."""
+    with sqlite3.connect(db_path) as db:
+        db.execute(
+            f"UPDATE {table} SET {column} = ? WHERE {key_column} = ?", (time.time() - age, key)
+        )
+
+
+async def test_authorization_code_is_stored_hashed(store: OAuthStore, tmp_path: Path) -> None:
+    db_path = str(tmp_path / "oauth.db")
+    await store.save_authorization_code(
+        _make_authorization_code(code="secret-code", expires_at=time.time() + 300)
+    )
+
+    ((stored, code_json),) = _raw_codes(db_path)
+    assert stored == hash_token("secret-code")
+    assert "secret-code" not in code_json
+    assert b"secret-code" not in Path(db_path).read_bytes()
+
+    loaded = await store.load_authorization_code("secret-code")
+    assert loaded is not None
+    assert loaded.code == "secret-code"  # the caller gets the real code back
+    assert await store.load_authorization_code(hash_token("secret-code")) is None  # digest != code
+
+
+async def test_used_authorization_code_is_deleted(store: OAuthStore, tmp_path: Path) -> None:
+    await store.save_authorization_code(
+        _make_authorization_code(code="code-1", expires_at=time.time() + 300)
+    )
+    await store.delete_authorization_code("code-1")
+    assert _scalar(str(tmp_path / "oauth.db"), "SELECT COUNT(*) FROM auth_codes") == 0
+
+
+async def test_expired_authorization_code_is_deleted_when_presented(
+    store: OAuthStore, tmp_path: Path
+) -> None:
+    await store.save_authorization_code(
+        _make_authorization_code(code="code-old", expires_at=time.time() - 5)
+    )
+    assert await store.load_authorization_code("code-old") is None
+    assert _scalar(str(tmp_path / "oauth.db"), "SELECT COUNT(*) FROM auth_codes") == 0
+
+
+async def test_expired_authorization_codes_are_purged_when_a_new_one_is_saved(
+    store: OAuthStore, tmp_path: Path
+) -> None:
+    await store.save_authorization_code(
+        _make_authorization_code(code="code-abandoned", expires_at=time.time() - 5)
+    )
+    await store.save_authorization_code(
+        _make_authorization_code(code="code-new", expires_at=time.time() + 300)
+    )
+    rows = _raw_codes(str(tmp_path / "oauth.db"))
+    assert [r[0] for r in rows] == [hash_token("code-new")]
+
+
+async def test_sweep_deletes_expired_auth_codes_but_not_live_ones(
+    store: OAuthStore, tmp_path: Path
+) -> None:
+    db_path = str(tmp_path / "oauth.db")
+    await store.save_authorization_code(
+        _make_authorization_code(code="code-live", expires_at=time.time() + 300)
+    )
+    await store.save_authorization_code(
+        _make_authorization_code(code="code-old", expires_at=time.time() + 300)
+    )
+    _age_row(db_path, "auth_codes", "expires_at", "code", hash_token("code-old"), 1)
+
+    counts = await store.cleanup_expired_auth_state()
+
+    assert counts["auth_codes"] == 1
+    assert await store.load_authorization_code("code-live") is not None
+
+
+async def test_sweep_deletes_abandoned_pending_authorizations(
+    store: OAuthStore, tmp_path: Path
+) -> None:
+    db_path = str(tmp_path / "oauth.db")
+    await store.save_pending_authorization("req-live", "client-1", "{}")
+    await store.save_pending_authorization("req-abandoned", "client-1", "{}")
+    _age_row(
+        db_path,
+        "pending_auth",
+        "created_at",
+        "request_id",
+        "req-abandoned",
+        PENDING_AUTH_TTL_SECONDS + 1,
+    )
+
+    counts = await store.cleanup_expired_auth_state()
+
+    assert counts["pending_auth"] == 1
+    assert await store.load_pending_authorization("req-live") is not None
+    assert _scalar(db_path, "SELECT COUNT(*) FROM pending_auth") == 1
+
+
+async def test_sweep_keeps_management_sessions_for_the_grace_then_deletes_them(
+    store: OAuthStore, tmp_path: Path
+) -> None:
+    db_path = str(tmp_path / "oauth.db")
+    live, _ = await store.create_management_session("subject-1")
+    recently_expired, _ = await store.create_management_session("subject-1")
+    long_expired, _ = await store.create_management_session("subject-1")
+    _age_row(
+        db_path,
+        "management_sessions",
+        "created_at",
+        "session_id",
+        recently_expired,
+        MANAGEMENT_SESSION_TTL_SECONDS + 60,
+    )
+    _age_row(
+        db_path,
+        "management_sessions",
+        "created_at",
+        "session_id",
+        long_expired,
+        MANAGEMENT_SESSION_TTL_SECONDS + 2 * 60 * 60,
+    )
+
+    counts = await store.cleanup_expired_auth_state()
+
+    assert counts["management_sessions"] == 1  # default grace is one hour
+    remaining = {r[0] for r in _scalar_col(db_path, "SELECT session_id FROM management_sessions")}
+    assert remaining == {live, recently_expired}
+    assert await store.load_management_session(recently_expired) is None  # expired, just retained
+
+
+async def test_retention_policy_is_configurable(tmp_path: Path) -> None:
+    db_path = str(tmp_path / "oauth.db")
+    store = OAuthStore(
+        db_path,
+        Fernet.generate_key().decode(),
+        RetentionPolicy(
+            management_session_grace_seconds=0,
+            pending_auth_grace_seconds=3600,
+            auth_code_grace_seconds=3600,
+        ),
+    )
+    await store.initialize()
+    session_id, _ = await store.create_management_session("subject-1")
+    _age_row(
+        db_path,
+        "management_sessions",
+        "created_at",
+        "session_id",
+        session_id,
+        MANAGEMENT_SESSION_TTL_SECONDS + 1,
+    )
+    await store.save_pending_authorization("req-1", "client-1", "{}")
+    _age_row(
+        db_path, "pending_auth", "created_at", "request_id", "req-1", PENDING_AUTH_TTL_SECONDS + 60
+    )
+    await store.save_authorization_code(
+        _make_authorization_code(code="code-1", expires_at=time.time() - 60)
+    )
+
+    counts = await store.cleanup_expired_auth_state()
+
+    assert counts == {"auth_codes": 0, "pending_auth": 0, "management_sessions": 1}
+
+
+async def test_periodic_cleanup_runs_the_auth_state_sweep_on_the_configured_interval(
+    tmp_path: Path,
+) -> None:
+    db_path = str(tmp_path / "oauth.db")
+    store = OAuthStore(
+        db_path, Fernet.generate_key().decode(), RetentionPolicy(sweep_interval_seconds=0)
+    )
+    await store.initialize()
+    await store.save_pending_authorization("req-1", "client-1", "{}")
+    _age_row(
+        db_path, "pending_auth", "created_at", "request_id", "req-1", PENDING_AUTH_TTL_SECONDS + 1
+    )
+
+    with anyio.move_on_after(1):
+        await store.run_periodic_cleanup()
+
+    assert _scalar(db_path, "SELECT COUNT(*) FROM pending_auth") == 0
+
+
+def _insert_legacy_code(db_path: str, code: AuthorizationCode) -> None:
+    with sqlite3.connect(db_path) as db:
+        db.execute(
+            "INSERT INTO auth_codes (code, client_id, code_json, expires_at) VALUES (?, ?, ?, ?)",
+            (code.code, code.client_id, code.model_dump_json(), code.expires_at),
+        )
+
+
+async def test_initialize_migrates_legacy_plaintext_auth_codes(
+    store: OAuthStore, tmp_path: Path
+) -> None:
+    db_path = str(tmp_path / "oauth.db")
+    _insert_legacy_code(
+        db_path, _make_authorization_code(code="legacy-live", expires_at=time.time() + 300)
+    )
+    _insert_legacy_code(
+        db_path, _make_authorization_code(code="legacy-expired", expires_at=time.time() - 5)
+    )
+
+    await store.initialize()
+    await store.initialize()  # idempotent
+
+    ((stored, code_json),) = _raw_codes(db_path)  # the expired one is gone
+    assert stored == hash_token("legacy-live")
+    assert "legacy-live" not in code_json
+    assert b"legacy-live" not in Path(db_path).read_bytes()
+    loaded = await store.load_authorization_code("legacy-live")  # still redeemable
+    assert loaded is not None
+    assert loaded.subject == "user-subject"
