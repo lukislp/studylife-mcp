@@ -11,3 +11,4 @@ resources:
   - ../01-config.yaml
   - ../03-studylife-ca.yaml
   - ../04-app.yaml
+  - ../11-tls-certificate.yaml

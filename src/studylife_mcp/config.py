@@ -74,5 +74,15 @@ class Settings(BaseSettings):
     # (the default) switches the route off: it answers 503 instead of being open.
     studylife_purge_secret: str | None = None
 
+    # Optional HTTPS listener for the StudyAtrium -> studylife-mcp purge hop (tls.py, README
+    # "TLS"). With both files set the app is also served over HTTPS on the TLS port; only one
+    # of the two, or a certificate that cannot be loaded, stops the start. Unset (the default)
+    # keeps the plain HTTP port only, which StudyAtrium then reaches only through its explicit
+    # AddonPurge:<Addon>:AllowPlainHttp opt-in.
+    studylife_mcp_tls_cert_file: str | None = None
+    studylife_mcp_tls_key_file: str | None = None
+    studylife_mcp_tls_port: int = 8443
+    studylife_mcp_tls_reload_interval_seconds: float = 300.0
+
     mcp_http_host: str = "127.0.0.1"
     mcp_http_port: int = 8000
