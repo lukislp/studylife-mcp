@@ -19,6 +19,7 @@ from studylife_mcp.models import Course, CourseGoal, Note, Session, configure_se
 from studylife_mcp.oauth_provider import SCOPE, StudyLifeOAuthProvider, register_oauth_routes
 from studylife_mcp.oauth_store import OAuthStore, RetentionPolicy
 from studylife_mcp.rate_limit import McpCallRateLimitMiddleware, RegistrationRateLimitMiddleware
+from studylife_mcp.tls import tls_files, tls_listener
 
 # Audit log destination: stderr only, never stdout - stdout carries the stdio
 # JSON-RPC transport and any stray write there would corrupt it.
@@ -258,12 +259,25 @@ def main_http() -> None:
         uvicorn.Config(app, host=_settings.mcp_http_host, port=_settings.mcp_http_port)
     )
 
+    # HTTPS listener for the StudyAtrium purge hop (tls.py): the same app again on the TLS port,
+    # only when the certificate files are configured. The plain server above runs the app's
+    # lifespan, so the TLS one only adds a socket.
+    tls = tls_files(_settings.studylife_mcp_tls_cert_file, _settings.studylife_mcp_tls_key_file)
+
     async def _serve() -> None:
         # Runs the periodic OAuth-client-cleanup sweep (oauth_store.py) alongside the
         # HTTP server instead of as a separate process/cron - simplest option at this
         # traffic scale, and keeps the whole HTTP transport's lifecycle (start/stop
         # together) in one place. Cancelled once server.serve() returns (on shutdown).
-        async with anyio.create_task_group() as tg:
+        async with (
+            anyio.create_task_group() as tg,
+            tls_listener(
+                app,
+                tls,
+                _settings.studylife_mcp_tls_port,
+                _settings.studylife_mcp_tls_reload_interval_seconds,
+            ),
+        ):
             tg.start_soon(oauth_store.run_periodic_cleanup)
             await server.serve()
             tg.cancel_scope.cancel()

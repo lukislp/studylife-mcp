@@ -107,6 +107,10 @@ spec:
           podSelector: { matchLabels: { app: studylife-worker } }
       ports:
         - { protocol: TCP, port: 8000 }
+        # HTTPS listener (tls.py, STUDYLIFE_MCP_TLS_PORT) - the port StudyAtrium's
+        # AddonPurge__Mcp__BaseUrl uses once it calls over TLS. 8000 stays allowed until that
+        # switch is live and can be dropped afterwards.
+        - { protocol: TCP, port: 8443 }
 
 # NOTE: reaching studylife-web needs an allow-rule on BOTH sides - studylife-mcp-egress below
 # on this side, and studylife-scale's own default-deny-ingress means the studylife repo's
