@@ -34,7 +34,7 @@ jobs:
     timeout-minutes: 15
     steps:
       - name: Harden Runner
-        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        uses: step-security/harden-runner@aebdcf6156ab6691adf63218240e476564a1ed4c # v2.23.0
         with:
           egress-policy: block
           allowed-endpoints: >
@@ -81,7 +81,7 @@ jobs:
     timeout-minutes: 20
     steps:
       - name: Harden Runner
-        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        uses: step-security/harden-runner@aebdcf6156ab6691adf63218240e476564a1ed4c # v2.23.0
         with:
           egress-policy: block
           allowed-endpoints: >
@@ -128,7 +128,7 @@ jobs:
     timeout-minutes: 15
     steps:
       - name: Harden Runner
-        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        uses: step-security/harden-runner@aebdcf6156ab6691adf63218240e476564a1ed4c # v2.23.0
         with:
           egress-policy: block
           allowed-endpoints: >
@@ -180,7 +180,7 @@ jobs:
     timeout-minutes: 20
     steps:
       - name: Harden Runner
-        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        uses: step-security/harden-runner@aebdcf6156ab6691adf63218240e476564a1ed4c # v2.23.0
         with:
           egress-policy: block
           allowed-endpoints: >
@@ -230,7 +230,7 @@ jobs:
   get-version:
     needs: [lint, test, contract-test]
     if: github.event_name == 'push'
-    uses: lukislp/lktec-bot/.github/workflows/release.yml@0ef1f3c75c6679a9e7fe482fc9099fe607a393f1 # v0.12.2
+    uses: lukislp/lktec-bot/.github/workflows/release.yml@fdeb70dedce46ff4ac74a465d89ea1e8c4a8ba1e # v0.13.0
     with:
       dry-run: true
     secrets:
@@ -266,7 +266,7 @@ jobs:
       NEXT_VERSION: ${{ needs.get-version.outputs.version }}
     steps:
       - name: Harden Runner
-        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        uses: step-security/harden-runner@aebdcf6156ab6691adf63218240e476564a1ed4c # v2.23.0
         with:
           egress-policy: block
           allowed-endpoints: >
@@ -358,7 +358,7 @@ jobs:
       NEXT_VERSION: ${{ needs.get-version.outputs.version }}
     steps:
       - name: Harden Runner
-        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        uses: step-security/harden-runner@aebdcf6156ab6691adf63218240e476564a1ed4c # v2.23.0
         with:
           egress-policy: block
           allowed-endpoints: >
@@ -435,7 +435,7 @@ jobs:
     concurrency:
       group: studylife-mcp-release-chain
       cancel-in-progress: false
-    uses: lukislp/lktec-bot/.github/workflows/deploy-bump.yml@0ef1f3c75c6679a9e7fe482fc9099fe607a393f1 # v0.12.2
+    uses: lukislp/lktec-bot/.github/workflows/deploy-bump.yml@fdeb70dedce46ff4ac74a465d89ea1e8c4a8ba1e # v0.13.0
     with:
       version: ${{ needs.release.outputs.version }}
       images: 'ghcr\.io/lukislp/(studylife-mcp)'
@@ -457,7 +457,7 @@ jobs:
       NEXT_VERSION: ${{ needs.get-version.outputs.version }}
     steps:
       - name: Harden Runner
-        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        uses: step-security/harden-runner@aebdcf6156ab6691adf63218240e476564a1ed4c # v2.23.0
         with:
           egress-policy: block
           allowed-endpoints: >
@@ -514,7 +514,7 @@ jobs:
     # anything is published under that version.
     needs: [get-version]
     if: github.event_name == 'push' && needs.get-version.outputs.released == 'true'
-    uses: lukislp/lktec-bot/.github/workflows/release.yml@0ef1f3c75c6679a9e7fe482fc9099fe607a393f1 # v0.12.2
+    uses: lukislp/lktec-bot/.github/workflows/release.yml@fdeb70dedce46ff4ac74a465d89ea1e8c4a8ba1e # v0.13.0
     secrets:
       app-id: ${{ secrets.LKTEC_BOT_APP_ID }}
       private-key: ${{ secrets.LKTEC_BOT_PRIVATE_KEY }}
@@ -529,7 +529,7 @@ jobs:
       id-token: write # trusted publishing (OIDC) - no PyPI token/secret needed
     steps:
       - name: Harden Runner
-        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        uses: step-security/harden-runner@aebdcf6156ab6691adf63218240e476564a1ed4c # v2.23.0
         with:
           egress-policy: block
           allowed-endpoints: >
